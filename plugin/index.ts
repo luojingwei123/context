@@ -48,6 +48,7 @@ export default definePluginEntry({
         const channelId = ctx.channelId;
         if (!channelId) return;
         const sessionKey = ctx.sessionKey || "";
+        logger.info(`[context] prompt-hook: sessionKey=${sessionKey}, channelId=${channelId}`);
         const cg = extractChannelGroup(sessionKey, channelId);
         if (!cg) return;
         const protocol = await fetchProtocol(cg.channel, cg.groupId);
@@ -330,14 +331,29 @@ export default definePluginEntry({
 // ═══════════════════════════════════════
 
 function extractChannelGroup(sessionKey: string, channelId: string): { channel: string; groupId: string } | null {
-  const discordMatch = sessionKey.match(/discord:guild:(\d+)/);
-  if (discordMatch) return { channel: "discord", groupId: discordMatch[1] };
-  const dmworkMatch = sessionKey.match(/dmwork:group:(\d+)/);
+  // Discord: agent:main:discord:channel:<channelId>
+  // Use channel ID as group identifier (one space per channel)
+  const discordChannelMatch = sessionKey.match(/discord:channel:(\d+)/);
+  if (discordChannelMatch) return { channel: "discord", groupId: discordChannelMatch[1] };
+  // Discord alternative: agent:main:discord:guild:<guildId>
+  const discordGuildMatch = sessionKey.match(/discord:guild:(\d+)/);
+  if (discordGuildMatch) return { channel: "discord", groupId: discordGuildMatch[1] };
+
+  // DMWork: agent:main:dmwork:group:<uuid>
+  const dmworkMatch = sessionKey.match(/dmwork:group:([a-f0-9]+)/);
   if (dmworkMatch) return { channel: "dmwork", groupId: dmworkMatch[1] };
+  // DMWork DM: agent:main:dmwork:default:direct:<uuid> — skip (not a group)
+  if (sessionKey.includes("dmwork:default:direct:")) return null;
+
+  // Telegram: agent:main:telegram:<chatId>
   const telegramMatch = sessionKey.match(/telegram:(-?\d+)/);
   if (telegramMatch) return { channel: "telegram", groupId: telegramMatch[1] };
+
+  // Slack: agent:main:slack:<teamId>:<channelId>
   const slackMatch = sessionKey.match(/slack:(\w+):(\w+)/);
   if (slackMatch) return { channel: "slack", groupId: `${slackMatch[1]}:${slackMatch[2]}` };
+
+  // Fallback: try channelId
   if (channelId && channelId.includes(":")) {
     const parts = channelId.split(":");
     if (parts.length >= 2) return { channel: parts[0], groupId: parts[1] };
