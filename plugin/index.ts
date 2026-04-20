@@ -1,19 +1,20 @@
 /**
- * Context Plugin — Main Entry Point
+ * Context Plugin — Main Entry Point v0.5
  *
  * Uses execute + jsonResult pattern (same as bundled plugins like firecrawl).
  */
 
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
-// Inline jsonResult to avoid import path issues with bundled SDK
-function jsonResult(payload: unknown) {
-  const text = typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
-  return { content: [{ type: "text" as const, text }], details: payload };
-}
 import { fetchProtocol, buildPromptInjection } from "./hooks/prompt-hook.js";
 import { handleContextFileRoute } from "./routes/file-access.js";
 
 const CTX_BASE_DEFAULT = "http://localhost:3100";
+
+// Inline jsonResult to avoid SDK import path issues with bundled SDK
+function jsonResult(payload: unknown) {
+  const text = typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
+  return { content: [{ type: "text" as const, text }], details: payload };
+}
 
 async function ctxFetch(serverUrl: string, method: string, path: string, body?: any): Promise<any> {
   const opts: any = {
@@ -26,6 +27,25 @@ async function ctxFetch(serverUrl: string, method: string, path: string, body?: 
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
+}
+
+// Helper: resolve channel + groupId from command context
+function resolveGroupFromCommandCtx(ctx: any): { channel: string; groupId: string } | null {
+  // ctx from registerCommand has: channelId, guildId (discord), groupId (dmwork), etc.
+  const channelType = ctx.channel || ctx.channelType || "";
+  const guildId = ctx.guildId;
+  const groupId = ctx.groupId;
+  const channelId = ctx.channelId;
+
+  if (channelType === "discord" || guildId) {
+    return { channel: "discord", groupId: channelId || guildId || "" };
+  }
+  if (channelType === "dmwork" || groupId) {
+    return { channel: "dmwork", groupId: groupId || "" };
+  }
+  // Fallback: try session key
+  const sessionKey = ctx.sessionKey || "";
+  return extractChannelGroup(sessionKey, channelId || "");
 }
 
 export default definePluginEntry({
@@ -51,23 +71,38 @@ export default definePluginEntry({
         logger.info(`[context] prompt-hook: sessionKey=${sessionKey}, channelId=${channelId}`);
         const cg = extractChannelGroup(sessionKey, channelId);
         if (!cg) return;
-        const protocol = await fetchProtocol(cg.channel, cg.groupId);
-        if (!protocol) return;
-        let spaceId = "";
+
         try {
-          const res = await fetch(
+          // Look up space
+          const lookupRes = await fetch(
             `${serverUrl}/api/spaces/lookup?channel=${encodeURIComponent(cg.channel)}&groupId=${encodeURIComponent(cg.groupId)}`,
             { signal: AbortSignal.timeout(3000) }
           );
-          if (res.ok) { const d = await res.json() as any; spaceId = d.space?.id || ""; }
-        } catch {}
-        if (!spaceId) return;
-        return { appendSystemContext: buildPromptInjection(protocol, spaceId) };
+          if (!lookupRes.ok) return;
+          const lookupData = await lookupRes.json() as any;
+          const spaceId = lookupData.space?.id;
+          if (!spaceId) return;
+
+          // Fetch protocol
+          const protocolRes = await fetch(
+            `${serverUrl}/api/spaces/${spaceId}/protocol`,
+            { signal: AbortSignal.timeout(3000) }
+          );
+          if (!protocolRes.ok) return;
+          const protocol = await protocolRes.json() as any;
+
+          const injection = buildPromptInjection(protocol, spaceId);
+          logger.info(`[context] prompt-hook: injecting protocol for space ${spaceId} (${injection.length} chars)`);
+          return { appendSystemContext: injection };
+        } catch (err: any) {
+          logger.info(`[context] prompt-hook: error — ${err.message}`);
+          return;
+        }
       });
     }
 
     // ═══════════════════════════════════════
-    // 2. AGENT TOOLS (execute + jsonResult pattern)
+    // 2. AGENT TOOLS
     // ═══════════════════════════════════════
 
     api.registerTool({
@@ -294,7 +329,7 @@ export default definePluginEntry({
     });
 
     // ═══════════════════════════════════════
-    // 4. SLASH COMMANDS
+    // 4. SLASH COMMANDS (real implementations)
     // ═══════════════════════════════════════
 
     api.registerCommand({
@@ -305,24 +340,178 @@ export default definePluginEntry({
         { name: "template", description: "Template: software-dev, content, research, blank", type: "string", required: false },
       ],
       acceptsArgs: true,
-      handler: async (_ctx) => ({ text: "🏗️ Use `context_create_space` tool or @me to create a space." }),
+      handler: async (ctx) => {
+        const cg = resolveGroupFromCommandCtx(ctx);
+        if (!cg || !cg.groupId) return { text: "❌ Cannot determine group context. Use this command in a group chat." };
+
+        const args: any = ctx.args || {};
+        const name = args.name || `Space-${cg.groupId.slice(0, 8)}`;
+        const template = args.template || "software-dev";
+
+        try {
+          const data = await ctxFetch(serverUrl, "POST", "/api/spaces", {
+            name,
+            channel: cg.channel,
+            groupId: cg.groupId,
+            createdBy: ctx.senderId || "unknown",
+            template,
+          });
+
+          if (data.existed) {
+            const space = data.space;
+            return { text: `ℹ️ 本群已有 Context Space: **${space.name}**\n🆔 ID: \`${space.id}\`\n📅 创建于: ${new Date(space.createdAt).toLocaleDateString("zh-CN")}` };
+          }
+
+          const space = data.space;
+          return { text: `🏗️ Context Space 创建成功！\n\n📛 名称: **${space.name}**\n🆔 ID: \`${space.id}\`\n📋 模板: ${template}\n📁 已初始化: SPACE.md + TEAM.md + TASK.md\n\n💡 AI 在本群对话时会自动获取协作上下文。` };
+        } catch (err: any) {
+          return { text: `❌ 创建失败: ${err.message}` };
+        }
+      },
     });
 
-    api.registerCommand({ name: "ctx_info", description: "📊 Context space info", handler: async () => ({ text: "📊 Use `context_lookup_space` tool." }) });
-    api.registerCommand({ name: "ctx_files", description: "📋 List space files", handler: async () => ({ text: "📋 Use `context_list_files` tool." }) });
-    api.registerCommand({ name: "ctx_tasks", description: "📝 Current tasks", handler: async () => ({ text: "📝 Use `context_get_protocol` tool." }) });
-    api.registerCommand({ name: "ctx_team", description: "👥 Team members", handler: async () => ({ text: "👥 Use `context_list_members` tool." }) });
+    api.registerCommand({
+      name: "ctx_info",
+      description: "📊 Show Context space info for this group",
+      handler: async (ctx) => {
+        const cg = resolveGroupFromCommandCtx(ctx);
+        if (!cg || !cg.groupId) return { text: "❌ Cannot determine group context." };
+
+        try {
+          const data = await ctxFetch(serverUrl, "GET",
+            `/api/spaces/lookup?channel=${encodeURIComponent(cg.channel)}&groupId=${encodeURIComponent(cg.groupId)}`);
+          const space = data.space;
+
+          // Get file count
+          const filesData = await ctxFetch(serverUrl, "GET", `/api/spaces/${space.id}/files`);
+          const membersData = await ctxFetch(serverUrl, "GET", `/api/spaces/${space.id}/members`);
+
+          return {
+            text: `📊 **${space.name}**\n\n🆔 ID: \`${space.id}\`\n📁 文件: ${filesData.files.length} 个\n👥 成员: ${membersData.members.length} 人\n📅 创建: ${new Date(space.createdAt).toLocaleDateString("zh-CN")}\n🔗 渠道: ${space.channel}`,
+          };
+        } catch {
+          return { text: "ℹ️ 本群暂无 Context Space。使用 `/ctx_create` 创建一个。" };
+        }
+      },
+    });
+
+    api.registerCommand({
+      name: "ctx_files",
+      description: "📋 List files in this group's Context space",
+      handler: async (ctx) => {
+        const cg = resolveGroupFromCommandCtx(ctx);
+        if (!cg || !cg.groupId) return { text: "❌ Cannot determine group context." };
+
+        try {
+          const lookupData = await ctxFetch(serverUrl, "GET",
+            `/api/spaces/lookup?channel=${encodeURIComponent(cg.channel)}&groupId=${encodeURIComponent(cg.groupId)}`);
+          const spaceId = lookupData.space.id;
+
+          const filesData = await ctxFetch(serverUrl, "GET", `/api/spaces/${spaceId}/files`);
+          const files = filesData.files;
+
+          if (files.length === 0) return { text: "📋 空间中暂无文件。" };
+
+          const list = files
+            .map((f: any) => {
+              const icon = f.path.endsWith(".md") ? "📝" : "📄";
+              const size = f.size < 1024 ? `${f.size}B` : `${(f.size / 1024).toFixed(1)}KB`;
+              return `${icon} \`${f.path}\` (${size}, v${f.version})`;
+            })
+            .join("\n");
+
+          return { text: `📋 **文件列表** (${files.length} 个)\n\n${list}` };
+        } catch {
+          return { text: "ℹ️ 本群暂无 Context Space。使用 `/ctx_create` 创建一个。" };
+        }
+      },
+    });
+
+    api.registerCommand({
+      name: "ctx_tasks",
+      description: "📝 Show current tasks from TASK.md",
+      handler: async (ctx) => {
+        const cg = resolveGroupFromCommandCtx(ctx);
+        if (!cg || !cg.groupId) return { text: "❌ Cannot determine group context." };
+
+        try {
+          const lookupData = await ctxFetch(serverUrl, "GET",
+            `/api/spaces/lookup?channel=${encodeURIComponent(cg.channel)}&groupId=${encodeURIComponent(cg.groupId)}`);
+          const spaceId = lookupData.space.id;
+
+          const fileData = await ctxFetch(serverUrl, "GET", `/api/spaces/${spaceId}/files/TASK.md`);
+          return { text: fileData.file.content };
+        } catch {
+          return { text: "ℹ️ 本群暂无 Context Space 或 TASK.md。" };
+        }
+      },
+    });
+
+    api.registerCommand({
+      name: "ctx_team",
+      description: "👥 Show team members from TEAM.md",
+      handler: async (ctx) => {
+        const cg = resolveGroupFromCommandCtx(ctx);
+        if (!cg || !cg.groupId) return { text: "❌ Cannot determine group context." };
+
+        try {
+          const lookupData = await ctxFetch(serverUrl, "GET",
+            `/api/spaces/lookup?channel=${encodeURIComponent(cg.channel)}&groupId=${encodeURIComponent(cg.groupId)}`);
+          const spaceId = lookupData.space.id;
+
+          const fileData = await ctxFetch(serverUrl, "GET", `/api/spaces/${spaceId}/files/TEAM.md`);
+          return { text: fileData.file.content };
+        } catch {
+          return { text: "ℹ️ 本群暂无 Context Space 或 TEAM.md。" };
+        }
+      },
+    });
 
     // ═══════════════════════════════════════
-    // 5. BOOTSTRAP HOOK
+    // 5. BOOTSTRAP HOOK — Auto-inject collaboration rules
     // ═══════════════════════════════════════
 
     api.registerHook("agent:bootstrap", async (event) => {
       if (event.type !== "agent" || event.action !== "bootstrap") return;
-      logger.info("[context] Agent bootstrap — Context plugin active");
+
+      // Check if AGENTS.md already has Context rules
+      const ctx = (event as any).context;
+      if (!ctx || !ctx.bootstrapFiles) {
+        logger.info("[context] Agent bootstrap — no bootstrap context, skipping AGENTS.md injection");
+        return;
+      }
+
+      const agentsFile = ctx.bootstrapFiles.find((f: any) => f.name === "AGENTS.md");
+      if (!agentsFile || !agentsFile.content) {
+        logger.info("[context] Agent bootstrap — AGENTS.md not found in bootstrap files");
+        return;
+      }
+
+      // Check if already has Context rules
+      if (agentsFile.content.includes("Context 协作规则") || agentsFile.content.includes("context_")) {
+        logger.info("[context] Agent bootstrap — AGENTS.md already has Context rules");
+        return;
+      }
+
+      // Inject Context collaboration rules
+      const contextRules = `
+
+## Context 协作规则
+
+当你在群聊中工作时，遵循以下规则：
+
+1. **使用 Context Space** — 所有工作产出写到群关联的 Context Space，不要放本地 workspace
+2. **分享用 URL** — 分享文件时发送 Context URL，不要发原文
+3. **先读 TASK.md** — 开始工作前先用 \`context_get_protocol\` 了解当前任务状态
+4. **及时更新** — 完成任务后用 \`context_update_task\` 更新 TASK.md
+5. **自动感知** — 如果当前群没有 Space，提示用户创建或用 \`context_create_space\` 创建
+`;
+
+      agentsFile.content += contextRules;
+      logger.info("[context] Agent bootstrap — injected Context rules into AGENTS.md");
     }, { name: "context-bootstrap" });
 
-    logger.info("[context] ✅ Plugin v0.2.0 registered (10 tools, prompt hook, HTTP routes)");
+    logger.info("[context] ✅ Plugin v0.5.0 registered (10 tools, prompt hook, HTTP routes, 5 commands)");
   },
 });
 
@@ -332,28 +521,25 @@ export default definePluginEntry({
 
 function extractChannelGroup(sessionKey: string, channelId: string): { channel: string; groupId: string } | null {
   // Discord: agent:main:discord:channel:<channelId>
-  // Use channel ID as group identifier (one space per channel)
   const discordChannelMatch = sessionKey.match(/discord:channel:(\d+)/);
   if (discordChannelMatch) return { channel: "discord", groupId: discordChannelMatch[1] };
-  // Discord alternative: agent:main:discord:guild:<guildId>
   const discordGuildMatch = sessionKey.match(/discord:guild:(\d+)/);
   if (discordGuildMatch) return { channel: "discord", groupId: discordGuildMatch[1] };
 
   // DMWork: agent:main:dmwork:group:<uuid>
   const dmworkMatch = sessionKey.match(/dmwork:group:([a-f0-9]+)/);
   if (dmworkMatch) return { channel: "dmwork", groupId: dmworkMatch[1] };
-  // DMWork DM: agent:main:dmwork:default:direct:<uuid> — skip (not a group)
   if (sessionKey.includes("dmwork:default:direct:")) return null;
 
-  // Telegram: agent:main:telegram:<chatId>
+  // Telegram
   const telegramMatch = sessionKey.match(/telegram:(-?\d+)/);
   if (telegramMatch) return { channel: "telegram", groupId: telegramMatch[1] };
 
-  // Slack: agent:main:slack:<teamId>:<channelId>
+  // Slack
   const slackMatch = sessionKey.match(/slack:(\w+):(\w+)/);
   if (slackMatch) return { channel: "slack", groupId: `${slackMatch[1]}:${slackMatch[2]}` };
 
-  // Fallback: try channelId
+  // Fallback
   if (channelId && channelId.includes(":")) {
     const parts = channelId.split(":");
     if (parts.length >= 2) return { channel: parts[0], groupId: parts[1] };
