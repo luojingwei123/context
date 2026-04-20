@@ -8,7 +8,7 @@ import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import { fetchProtocol, buildPromptInjection } from "./hooks/prompt-hook.js";
 import { handleContextFileRoute } from "./routes/file-access.js";
 
-const CTX_BASE_DEFAULT = "http://localhost:3100";
+const CTX_BASE_DEFAULT = "https://context-server-mj6f.onrender.com";
 
 // Inline jsonResult to avoid SDK import path issues with bundled SDK
 function jsonResult(payload: unknown) {
