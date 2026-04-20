@@ -379,6 +379,51 @@ export default definePluginEntry({
       },
     });
 
+    api.registerTool({
+      name: "context_notify_member",
+      label: "Notify Context Member",
+      description: "Send a notification message to a specific member or the whole group about a Context event (file update, task change, annotation, etc). Routes through the IM channel associated with the Space.",
+      parameters: {
+        type: "object",
+        properties: {
+          space_id: { type: "string", description: "Space ID" },
+          message: { type: "string", description: "Notification message to send" },
+          member_name: { type: "string", description: "Target member name (optional, omit for group-wide)" },
+        },
+        required: ["space_id", "message"],
+      },
+      execute: async (_id: string, params: any) => {
+        const { space_id, message, member_name } = params;
+        // Look up space to get channel info
+        try {
+          const spaceData = await ctxFetch(serverUrl, "GET", `/api/spaces/${space_id}`);
+          const space = spaceData.space;
+          if (!space) return jsonResult({ success: false, error: "Space not found" });
+
+          const channel = space.channel; // discord, dmwork, telegram, etc.
+          const groupId = space.groupId;
+
+          // Format message
+          const prefix = member_name ? `@${member_name} ` : "";
+          const fullMessage = `${prefix}📢 [Context 通知]\n${message}`;
+
+          // Use the messaging API to send to the group
+          // This returns info for the agent to send via message tool
+          return jsonResult({
+            success: true,
+            notification: {
+              channel,
+              target: groupId,
+              message: fullMessage,
+              hint: "Use the message tool with action=send to deliver this notification to the group.",
+            },
+          });
+        } catch (err: any) {
+          return jsonResult({ success: false, error: err.message });
+        }
+      },
+    });
+
     // ═══════════════════════════════════════
     // 3. HTTP ROUTES
     // ═══════════════════════════════════════
@@ -573,7 +618,7 @@ export default definePluginEntry({
       logger.info("[context] Agent bootstrap — injected Context rules into AGENTS.md");
     }, { name: "context-bootstrap" });
 
-    logger.info("[context] ✅ Plugin v1.1.0 registered (13 tools, prompt hook, HTTP routes, 5 commands)");
+    logger.info("[context] ✅ Plugin v1.2.0 registered (14 tools, prompt hook, HTTP routes, 5 commands)");
   },
 });
 

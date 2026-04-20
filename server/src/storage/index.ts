@@ -434,3 +434,59 @@ export async function deleteAnnotation(spaceId: string, annotationId: string): P
   await fs.writeJson(p, filtered, { spaces: 2 });
   return true;
 }
+
+// ═══════════════════════════════════════
+// Notifications (pending messages to send to IM)
+// ═══════════════════════════════════════
+
+export interface Notification {
+  id: string;
+  spaceId: string;
+  type: string;
+  channel: string;
+  target: string;
+  message: string;
+  createdBy: string;
+  createdAt: string;
+  sent: boolean;
+}
+
+function notificationsPath(spaceId: string): string {
+  return path.join(spaceDir(spaceId), "notifications.json");
+}
+
+/** Add a notification to the queue */
+export async function addNotification(spaceId: string, notif: { type: string; channel: string; target: string; message: string; createdBy: string }): Promise<Notification> {
+  const p = notificationsPath(spaceId);
+  const all: Notification[] = (await fs.pathExists(p)) ? await fs.readJson(p) : [];
+  const newNotif: Notification = {
+    id: nanoid(8),
+    spaceId,
+    ...notif,
+    createdAt: new Date().toISOString(),
+    sent: false,
+  };
+  all.push(newNotif);
+  await fs.writeJson(p, all, { spaces: 2 });
+  return newNotif;
+}
+
+/** Get pending (unsent) notifications */
+export async function getPendingNotifications(spaceId: string): Promise<Notification[]> {
+  const p = notificationsPath(spaceId);
+  if (!(await fs.pathExists(p))) return [];
+  const all: Notification[] = await fs.readJson(p);
+  return all.filter(n => !n.sent);
+}
+
+/** Mark notification as sent */
+export async function markNotificationSent(spaceId: string, notifId: string): Promise<void> {
+  const p = notificationsPath(spaceId);
+  if (!(await fs.pathExists(p))) return;
+  const all: Notification[] = await fs.readJson(p);
+  const notif = all.find(n => n.id === notifId);
+  if (notif) {
+    notif.sent = true;
+    await fs.writeJson(p, all, { spaces: 2 });
+  }
+}

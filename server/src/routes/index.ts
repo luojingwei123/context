@@ -10,6 +10,7 @@
 import { Router } from "express";
 import * as storage from "../storage/index.js";
 import { getTemplate } from "../templates/index.js";
+import * as menuRegistry from "../menu/index.js";
 import type { CreateSpaceRequest, SpaceLookupQuery } from "../types.js";
 
 const router = Router();
@@ -233,6 +234,56 @@ router.post("/spaces/:id/annotations/:annId/to-task", async (req, res) => {
 
     res.json({ success: true, message: "Annotation converted to task" });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── Notifications API ───
+
+/** Get pending notifications */
+router.get("/spaces/:id/notifications", async (req, res) => {
+  try {
+    const notifications = await storage.getPendingNotifications(req.params.id);
+    res.json({ notifications });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+/** Mark notification as sent */
+router.put("/spaces/:id/notifications/:notifId/sent", async (req, res) => {
+  try {
+    await storage.markNotificationSent(req.params.id, req.params.notifId);
+    res.json({ success: true });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── Context Menu API ───
+
+/** List custom menu items */
+router.get("/menu/items", (_req, res) => {
+  res.json({ items: menuRegistry.listCustomMenuItems() });
+});
+
+/** Register a menu item */
+router.post("/menu/items", (req, res) => {
+  try {
+    const { id, label, icon, fileTypes, actionType, actionUrl, registeredBy } = req.body;
+    if (!id || !label || !actionType) return res.status(400).json({ error: "id, label, actionType required" });
+    const item = menuRegistry.registerMenuItem({
+      id, label, icon: icon || "⚡", fileTypes: fileTypes || ["*"],
+      actionType: actionType || "url", actionUrl: actionUrl || "", registeredBy: registeredBy || "unknown",
+    });
+    res.status(201).json({ item });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+/** Remove a menu item */
+router.delete("/menu/items/:id", (req, res) => {
+  const removed = menuRegistry.removeMenuItem(req.params.id);
+  if (!removed) return res.status(404).json({ error: "Menu item not found" });
+  res.json({ success: true });
+});
+
+/** Get menu items for a specific file extension */
+router.get("/menu/items/:ext", (req, res) => {
+  res.json({ items: menuRegistry.getMenuItems(req.params.ext) });
 });
 
 
@@ -470,6 +521,29 @@ router.post("/s/:id/annotation-to-task/:annId", async (req, res) => {
   } catch (err: any) { res.status(500).send(err.message); }
 });
 
+/** Send annotation to IM group (form POST) */
+router.post("/s/:id/annotation-to-chat/:annId", async (req, res) => {
+  try {
+    const { filePath } = req.body;
+    const ann = (await storage.getAnnotations(req.params.id)).find(a => a.id === req.params.annId);
+    if (!ann) return res.redirect(`/s/${req.params.id}`);
+
+    const space = await storage.getSpace(req.params.id);
+    if (!space) return res.redirect(`/s/${req.params.id}`);
+
+    // Store as pending notification for the agent to pick up
+    await storage.addNotification(req.params.id, {
+      type: "annotation",
+      channel: space.channel,
+      target: space.groupId,
+      message: `💬 批注 @${ann.author} → ${ann.filePath}${ann.line > 0 ? ` 第${ann.line}行` : ""}:\n\n${ann.content}\n\n📎 查看: http://localhost:3100/ctx/${req.params.id}/${ann.filePath}`,
+      createdBy: "web-user",
+    });
+
+    res.redirect(`/s/${req.params.id}/view/${filePath || ann.filePath}?sent=1`);
+  } catch (err: any) { res.status(500).send(err.message); }
+});
+
 /** Upload file (multipart form) */
 router.post("/s/:id/upload", async (req, res) => {
   try {
@@ -535,6 +609,10 @@ router.get("/s/:id/annotations", async (req, res) => {
         <form method="POST" action="/s/${req.params.id}/annotation-to-task/${a.id}" style="display:inline;margin-left:4px;">
           <input type="hidden" name="filePath" value="${esc(a.filePath)}">
           <button type="submit" class="btn-small">📋 转为任务</button>
+        </form>
+        <form method="POST" action="/s/${req.params.id}/annotation-to-chat/${a.id}" style="display:inline;margin-left:4px;">
+          <input type="hidden" name="filePath" value="${esc(a.filePath)}">
+          <button type="submit" class="btn-small">📢 发到群</button>
         </form>
       </div>
     `).join("");
@@ -737,11 +815,21 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
 
   // Render content with line numbers for annotation reference
   const lines = file.content.split("\n");
+  const isJson = file.mimeType === "application/json" || filePath.endsWith(".json");
   const numberedContent = lines.map((line: string, i: number) => {
     const lineNum = i + 1;
     const lineAnns = openAnns.filter((a: any) => a.line === lineNum || (a.line <= lineNum && a.endLine >= lineNum));
     const highlight = lineAnns.length > 0 ? ' style="background:#fff8c5;border-left:3px solid #d4a72c;padding-left:8px;"' : '';
-    return `<tr${highlight}><td class="line-num">${lineNum}</td><td class="line-content">${esc(line) || '&nbsp;'}</td></tr>`;
+    let content = esc(line) || '&nbsp;';
+    // JSON syntax highlighting
+    if (isJson) {
+      content = content
+        .replace(/(&quot;[^&]*?&quot;)\s*:/g, '<span style="color:#0550ae;">$1</span>:')
+        .replace(/:\s*(&quot;[^&]*?&quot;)/g, ': <span style="color:#0a3069;">$1</span>')
+        .replace(/:\s*(true|false|null)/g, ': <span style="color:#cf222e;">$1</span>')
+        .replace(/:\s*(\d+\.?\d*)/g, ': <span style="color:#0550ae;">$1</span>');
+    }
+    return `<tr${highlight}><td class="line-num">${lineNum}</td><td class="line-content">${content}</td></tr>`;
   }).join("\n");
 
   // Annotation list
@@ -761,6 +849,10 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
         <form method="POST" action="/s/${spaceId}/annotation-to-task/${a.id}" style="display:inline;margin-left:4px;">
           <input type="hidden" name="filePath" value="${esc(filePath)}">
           <button type="submit" class="btn-small">📋 转为任务</button>
+        </form>
+        <form method="POST" action="/s/${spaceId}/annotation-to-chat/${a.id}" style="display:inline;margin-left:4px;">
+          <input type="hidden" name="filePath" value="${esc(filePath)}">
+          <button type="submit" class="btn-small">📢 发到群</button>
         </form>
       </div>
     `).join("")
@@ -808,14 +900,17 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
       </form>
     </div>
 
-    <table class="code-table">${numberedContent}</table>
+    ${file.mimeType.startsWith("image/")
+      ? `<div style="text-align:center;padding:20px;"><img src="/ctx/${spaceId}/${filePath}" style="max-width:100%;border:1px solid #d1d9e0;border-radius:6px;" alt="${esc(filePath)}"></div>`
+      : `<table class="code-table">${numberedContent}</table>`
+    }
 
     <h3>💬 批注 (${openAnns.length} 条待处理)</h3>
     ${annListHtml}
     ${resolvedHtml}
 
-    <div class="add-annotation">
-      <h4>➕ 添加批注</h4>
+    <div class="add-annotation" id="addAnnotation">
+      <h4>➕ 添加批注 <small style="font-weight:normal;color:#656d76;">(或在代码区框选文字后右键→添加批注)</small></h4>
       <p class="selection-hint" id="selectionHint" style="color:#0969da;font-size:13px;display:none;">
         📌 已选中第 <span id="selStartLine">?</span>-<span id="selEndLine">?</span> 行
       </p>
@@ -823,10 +918,27 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
         <input type="hidden" name="filePath" value="${esc(filePath)}">
         <label>行号: <input name="line" id="annLine" type="number" min="0" max="${lines.length}" value="0" style="width:60px;"> </label>
         <label>到: <input name="endLine" id="annEndLine" type="number" min="0" max="${lines.length}" value="0" style="width:60px;"></label>
-        <small>(0 = 全文批注，或在上方代码区域框选文字自动定位)</small><br><br>
+        <small>(0 = 全文批注)</small><br><br>
         <textarea name="content" id="annContent" style="width:100%;height:80px;" placeholder="写下你的批注/修改意见..." required></textarea><br>
         <label>批注人: <input name="author" value=""></label>
         <button type="submit" style="margin-left:10px;">💬 提交批注</button>
+      </form>
+    </div>
+
+    <!-- 浮动批注弹窗 -->
+    <div id="floatingAnnotation" style="display:none;position:fixed;bottom:20px;right:20px;width:380px;background:#fff;border:1px solid #d1d9e0;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.2);padding:16px;z-index:9998;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <b>💬 快速批注</b>
+        <span id="floatClose" style="cursor:pointer;font-size:18px;">✕</span>
+      </div>
+      <p id="floatLineInfo" style="color:#0969da;font-size:13px;margin:4px 0;"></p>
+      <form method="POST" action="/s/${spaceId}/annotate">
+        <input type="hidden" name="filePath" value="${esc(filePath)}">
+        <input type="hidden" name="line" id="floatLine" value="0">
+        <input type="hidden" name="endLine" id="floatEndLine" value="0">
+        <textarea name="content" id="floatContent" style="width:100%;height:60px;font-size:13px;" placeholder="写下修改意见..." required></textarea><br>
+        <input name="author" placeholder="你的名字" style="width:120px;margin-top:6px;">
+        <button type="submit" style="margin-left:8px;">💬 提交</button>
       </form>
     </div>
 
@@ -835,40 +947,55 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
     const FILE_PATH = '${filePath.replace(/'/g, "\\'")}';
     const CTX_URL = 'http://localhost:3100/ctx/${spaceId}/${filePath}';
 
-    // 框选代码行自动定位行号
-    document.querySelector('.code-table').addEventListener('mouseup', function() {
-      const sel = window.getSelection();
-      if (!sel || sel.isCollapsed) return;
-
-      let startNode = sel.anchorNode;
-      let endNode = sel.focusNode;
-
-      function findRow(node) {
-        while (node && node.tagName !== 'TR') node = node.parentElement;
-        return node;
-      }
-
-      const startRow = findRow(startNode);
-      const endRow = findRow(endNode);
-      if (!startRow || !endRow) return;
-
-      const rows = Array.from(document.querySelectorAll('.code-table tr'));
-      let startIdx = rows.indexOf(startRow) + 1;
-      let endIdx = rows.indexOf(endRow) + 1;
-      if (startIdx > endIdx) [startIdx, endIdx] = [endIdx, startIdx];
-
-      document.getElementById('annLine').value = startIdx;
-      document.getElementById('annEndLine').value = endIdx;
-      document.getElementById('selStartLine').textContent = startIdx;
-      document.getElementById('selEndLine').textContent = endIdx;
-      document.getElementById('selectionHint').style.display = 'block';
-
-      const selectedText = sel.toString().trim();
-      const textarea = document.getElementById('annContent');
-      if (textarea && !textarea.value) {
-        textarea.placeholder = '针对选中内容: "' + selectedText.slice(0, 50) + (selectedText.length > 50 ? '...' : '') + '" 的修改意见...';
-      }
+    // Close floating annotation
+    document.getElementById('floatClose').addEventListener('click', function() {
+      document.getElementById('floatingAnnotation').style.display = 'none';
     });
+
+    // 框选代码行自动定位行号 + 弹窗
+    var codeTable = document.querySelector('.code-table');
+    if (codeTable) {
+      codeTable.addEventListener('mouseup', function() {
+        const sel = window.getSelection();
+        if (!sel || sel.isCollapsed) return;
+
+        let startNode = sel.anchorNode;
+        let endNode = sel.focusNode;
+
+        function findRow(node) {
+          while (node && node.tagName !== 'TR') node = node.parentElement;
+          return node;
+        }
+
+        const startRow = findRow(startNode);
+        const endRow = findRow(endNode);
+        if (!startRow || !endRow) return;
+
+        const rows = Array.from(document.querySelectorAll('.code-table tr'));
+        let startIdx = rows.indexOf(startRow) + 1;
+        let endIdx = rows.indexOf(endRow) + 1;
+        if (startIdx > endIdx) [startIdx, endIdx] = [endIdx, startIdx];
+
+        // Update bottom form
+        document.getElementById('annLine').value = startIdx;
+        document.getElementById('annEndLine').value = endIdx;
+        document.getElementById('selStartLine').textContent = startIdx;
+        document.getElementById('selEndLine').textContent = endIdx;
+        document.getElementById('selectionHint').style.display = 'block';
+
+        // Show floating popup
+        document.getElementById('floatLine').value = startIdx;
+        document.getElementById('floatEndLine').value = endIdx;
+        document.getElementById('floatLineInfo').textContent = '📌 第 ' + startIdx + (endIdx > startIdx ? '-' + endIdx : '') + ' 行';
+        document.getElementById('floatingAnnotation').style.display = 'block';
+
+        const selectedText = sel.toString().trim();
+        var floatContent = document.getElementById('floatContent');
+        if (floatContent && !floatContent.value) {
+          floatContent.placeholder = '针对: "' + selectedText.slice(0, 40) + (selectedText.length > 40 ? '...' : '') + '"';
+        }
+      });
+    }
 
     // 右键菜单
     const ctxMenu = document.createElement('div');
@@ -919,9 +1046,12 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
           navigator.clipboard.writeText(refUrl).then(() => alert('已复制: ' + refUrl));
           break;
         case 'add-annotation':
-          document.getElementById('annContent').focus();
-          document.getElementById('annContent').value = selectedText ? '关于: "' + selectedText.slice(0, 100) + '"\\n\\n' : '';
-          document.querySelector('.add-annotation').scrollIntoView({behavior:'smooth'});
+          document.getElementById('floatingAnnotation').style.display = 'block';
+          document.getElementById('floatContent').focus();
+          if (selectedText) {
+            document.getElementById('floatContent').value = '';
+            document.getElementById('floatContent').placeholder = '针对: "' + selectedText.slice(0, 40) + '"';
+          }
           break;
         case 'create-task':
           const taskDesc = selectedText.slice(0, 60) || '来自 ' + FILE_PATH;
