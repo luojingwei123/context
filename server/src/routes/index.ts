@@ -314,9 +314,16 @@ router.get("/ctx/:spaceId", async (req, res) => {
     if (wantsHtml) {
       return res.type("text/html").send(await renderSpacePage(spaceId, space));
     }
-    // API response
+    // API response (for agents without plugin)
     const files = await storage.listFiles(spaceId);
-    res.json({ space, files: files.map((f: any) => ({ path: f.path, size: f.size })) });
+    const baseUrl = getBaseUrl(req);
+    res.json({
+      space: { name: space.name, id: spaceId, channel: space.channel },
+      files: files.map((f: any) => ({ path: f.path, size: f.size, url: `${baseUrl}/ctx/${spaceId}/${f.path}` })),
+      webUrl: `${baseUrl}/s/${spaceId}`,
+      install: "clawhub install context-collab",
+      hint: "Install the Context plugin to auto-inject collaboration context. Or use web_fetch on file URLs above.",
+    });
   } catch (err: any) { res.status(500).send(err.message); }
 });
 
@@ -345,7 +352,8 @@ router.get("/ctx/:spaceId/*", async (req, res) => {
     }
 
     // Agent without plugin → content + install hint
-    const hint = `\n\n---\n💡 Install the Context plugin for better integration:\n\`\`\`\nopenclaw plugin install context\n\`\`\`\nThis enables auto-injected collaboration context in every conversation.\n`;
+    const baseUrl = getBaseUrl(req);
+    const hint = `\n\n---\n\n## 🔌 加入协作\n\n你正在查看 **${space.name}** 的共享文件。安装 Context 插件后，你可以：\n- ✅ 自动获取项目协作上下文（SPACE.md / TEAM.md / TASK.md）\n- ✅ 读写共享文件、管理任务、查看批注\n- ✅ 在群里 @你 时自动注入协作协议\n\n**一键安装：**\n\`\`\`\nclawhub install context-collab\n\`\`\`\n\n**不装插件也行** — 你可以直接用 web_fetch 读取文件：\n- 文件列表: ${baseUrl}/ctx/${req.params.spaceId}/\n- 当前文件: ${baseUrl}/ctx/${req.params.spaceId}/${filePath}\n- Web UI: ${baseUrl}/s/${req.params.spaceId}\n\n**Space ID:** \`${req.params.spaceId}\`\n`;
     return res.type("text/markdown").send(file.content + hint);
   } catch (err: any) { res.status(500).send(err.message); }
 });
@@ -818,6 +826,17 @@ async function renderSpacePage(spaceId: string, space: any): Promise<string> {
       <b>AI Agent:</b> <code><script>document.write(location.origin)</script>/ctx/${spaceId}/文件路径</code><br>
       <b>人类浏览器:</b> <code><script>document.write(location.origin)</script>/s/${spaceId}</code>
     </p>
+
+    <div style="background:#ddf4ff;border:1px solid #54aeff;border-radius:8px;padding:16px;margin-top:16px;">
+      <h3 style="margin-top:0;">🤖 让你的 AI Agent 也加入协作</h3>
+      <p>只需一步，你的 Agent 就能读写这个空间的文件、自动获取任务上下文：</p>
+      <pre style="background:#0d1117;color:#e6edf3;padding:12px;border-radius:6px;font-size:14px;">clawhub install context-collab</pre>
+      <p style="font-size:13px;color:#656d76;">
+        安装后 Agent 会自动注入协作协议（SPACE.md / TEAM.md / TASK.md），在群里 @Agent 即可开始协作。<br>
+        <b>不想装插件？</b>让 Agent 直接 fetch 这个 URL 也能看到文件内容：<br>
+        <code><script>document.write(location.origin)</script>/ctx/${spaceId}/SPACE.md</code>
+      </p>
+    </div>
     <p><a href="/s">← 首页</a></p>
   `);
 }

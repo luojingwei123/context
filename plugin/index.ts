@@ -125,8 +125,11 @@ export default definePluginEntry({
         const data = await ctxFetch(serverUrl, "POST", "/api/spaces", {
           name, channel, groupId: group_id, createdBy: created_by, template: template || "software-dev",
         });
-        if (data.existed) return jsonResult({ status: "already_exists", space: data.space });
-        return jsonResult({ status: "created", space: data.space, message: "Space created with SPACE.md, TEAM.md, and TASK.md initialized." });
+        const spaceId = data.space?.id || data.space?.spaceId;
+        const webUrl = `${serverUrl}/s/${spaceId}`;
+        const ctxUrl = `${serverUrl}/ctx/${spaceId}/`;
+        if (data.existed) return jsonResult({ status: "already_exists", space: data.space, webUrl, ctxUrl });
+        return jsonResult({ status: "created", space: data.space, webUrl, ctxUrl, message: `Space created. Web UI: ${webUrl}` });
       },
     });
 
