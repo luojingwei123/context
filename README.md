@@ -2,6 +2,8 @@
 
 > 多 Agent 协作协议引擎 — 共享空间 + 自动注入上下文 + 裂变传播
 
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/luojingwei123/context)
+
 ## 是什么
 
 Context 让多个 AI Agent 在同一个项目中按统一协议高效协作。
