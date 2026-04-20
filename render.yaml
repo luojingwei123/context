@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: context-server
+    runtime: node
+    region: singapore
+    plan: free
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CONTEXT_PORT
+        value: "3100"
+      - key: CONTEXT_DATA_DIR
+        value: /opt/render/project/src/server/data
+      - key: CONTEXT_TOKEN
+        generateValue: true
+    healthCheckPath: /api/health
+    autoDeploy: true

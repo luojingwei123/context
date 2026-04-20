@@ -8,7 +8,8 @@ import fs from "fs";
 import path from "path";
 import routes from "./routes/index.js";
 
-const PORT = parseInt(process.env.CONTEXT_PORT || "3100", 10);
+const PORT = parseInt(process.env.PORT || process.env.CONTEXT_PORT || "3100", 10);
+const HOST = process.env.HOST || "0.0.0.0";
 const DATA_DIR = process.env.CONTEXT_DATA_DIR || path.join(process.cwd(), "data");
 
 // Token auth: if CONTEXT_TOKEN env is set, require it for API access
@@ -71,7 +72,7 @@ app.use("/api", apiAuth, routes);
 // /ctx routes — public (content + install hint for non-plugin agents, or rendered page for browsers)
 app.use("/", routes);
 
-app.listen(PORT, () => {
-  console.log(`[context-server] ✅ Running on http://localhost:${PORT}`);
+app.listen(PORT, HOST, () => {
+  console.log(`[context-server] ✅ Running on http://${HOST}:${PORT}`);
   console.log(`[context-server] Data dir: ${DATA_DIR}`);
 });

@@ -15,6 +15,13 @@ import type { CreateSpaceRequest, SpaceLookupQuery } from "../types.js";
 
 const router = Router();
 
+/** Get base URL from request (handles proxied environments) */
+function getBaseUrl(req: any): string {
+  const proto = req.headers["x-forwarded-proto"] || req.protocol || "http";
+  const host = req.headers["x-forwarded-host"] || req.headers["host"] || "localhost:3100";
+  return `${proto}://${host}`;
+}
+
 // ════════════════════════════════════════════════════════════════
 // API Routes (JSON，给 Agent / Plugin 调用)
 // ════════════════════════════════════════════════════════════════
@@ -536,7 +543,7 @@ router.post("/s/:id/annotation-to-chat/:annId", async (req, res) => {
       type: "annotation",
       channel: space.channel,
       target: space.groupId,
-      message: `💬 批注 @${ann.author} → ${ann.filePath}${ann.line > 0 ? ` 第${ann.line}行` : ""}:\n\n${ann.content}\n\n📎 查看: http://localhost:3100/ctx/${req.params.id}/${ann.filePath}`,
+      message: `💬 批注 @${ann.author} → ${ann.filePath}${ann.line > 0 ? ` 第${ann.line}行` : ""}:\n\n${ann.content}\n\n📎 查看: ${getBaseUrl(req)}/ctx/${req.params.id}/${ann.filePath}`,
       createdBy: "web-user",
     });
 
@@ -802,8 +809,8 @@ async function renderSpacePage(spaceId: string, space: any): Promise<string> {
     <hr>
     <h3>🔗 分享地址</h3>
     <p>
-      <b>AI Agent:</b> <code>http://localhost:3100/ctx/${spaceId}/文件路径</code><br>
-      <b>人类浏览器:</b> <code>http://localhost:3100/s/${spaceId}</code>
+      <b>AI Agent:</b> <code><script>document.write(location.origin)</script>/ctx/${spaceId}/文件路径</code><br>
+      <b>人类浏览器:</b> <code><script>document.write(location.origin)</script>/s/${spaceId}</code>
     </p>
     <p><a href="/s">← 所有空间</a></p>
   `);
@@ -945,7 +952,7 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
     <script>
     const SPACE_ID = '${spaceId}';
     const FILE_PATH = '${filePath.replace(/'/g, "\\'")}';
-    const CTX_URL = 'http://localhost:3100/ctx/${spaceId}/${filePath}';
+    const CTX_URL = location.origin + '/ctx/${spaceId}/${filePath}';
 
     // Close floating annotation
     document.getElementById('floatClose').addEventListener('click', function() {
