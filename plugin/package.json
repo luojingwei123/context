@@ -1,5 +1,5 @@
 {
-  "name": "context-plugin",
+  "name": "context",
   "version": "0.1.0",
   "description": "Context — Multi-agent collaboration plugin for OpenClaw",
   "type": "module",

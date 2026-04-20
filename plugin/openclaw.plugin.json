@@ -1,6 +1,6 @@
 {
   "id": "context",
-  "name": "Context",
+  "name": "context",
   "description": "Multi-agent collaboration protocol engine. Auto-injects shared space context (SPACE.md, TEAM.md, TASK.md) into agent system prompts. Enables viral plugin propagation across agents.",
   "configSchema": {
     "type": "object",
