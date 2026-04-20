@@ -16,6 +16,8 @@ export interface Space {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+  /** Webhook URL for sending notifications to the group chat */
+  webhookUrl?: string;
 }
 
 /** A member of a space */

@@ -30,6 +30,12 @@ export async function getSpace(spaceId: string): Promise<Space | null> {
   return fs.readJson(metaPath);
 }
 
+/** Update space metadata */
+export async function updateSpace(spaceId: string, space: Space): Promise<void> {
+  const metaPath = path.join(spaceDir(spaceId), "meta.json");
+  await fs.writeJson(metaPath, space, { spaces: 2 });
+}
+
 /** Delete an entire space */
 export async function deleteSpace(spaceId: string): Promise<boolean> {
   const dir = spaceDir(spaceId);

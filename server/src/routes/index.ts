@@ -77,6 +77,20 @@ router.delete("/spaces/:id", async (req, res) => {
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+/** Update space settings (webhook, name, etc.) */
+router.patch("/spaces/:id", async (req, res) => {
+  try {
+    const space = await storage.getSpace(req.params.id);
+    if (!space) return res.status(404).json({ error: "Space not found" });
+    const { webhookUrl, name } = req.body;
+    if (webhookUrl !== undefined) space.webhookUrl = webhookUrl;
+    if (name) space.name = name;
+    space.updatedAt = new Date().toISOString();
+    await storage.updateSpace(req.params.id, space);
+    res.json({ space });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 router.get("/spaces", async (_req, res) => {
   try { res.json({ spaces: await storage.listSpaces() }); }
   catch (err: any) { res.status(500).json({ error: err.message }); }
@@ -403,6 +417,19 @@ router.get("/s", async (_req, res) => {
 });
 
 /** Create space (form POST) */
+/** Save space settings (webhook) */
+router.post("/s/:id/settings", async (req, res) => {
+  try {
+    const space = await storage.getSpace(req.params.id);
+    if (!space) return res.redirect("/s");
+    const { webhookUrl } = req.body;
+    if (webhookUrl !== undefined) space.webhookUrl = webhookUrl || undefined;
+    space.updatedAt = new Date().toISOString();
+    await storage.updateSpace(req.params.id, space);
+    res.redirect(`/s/${req.params.id}`);
+  } catch (err: any) { res.status(500).send(err.message); }
+});
+
 router.post("/s/create", async (req, res) => {
   try {
     const { name, channel, groupId, template, createdBy } = req.body;
@@ -438,7 +465,11 @@ router.get("/s/:id/view/*", async (req, res) => {
     const file = await storage.getFile(req.params.id, filePath);
     if (!file) return res.status(404).send(notFoundPage(`File not found: ${filePath}`));
     const annotations = await storage.getAnnotations(req.params.id, filePath);
-    res.type("text/html").send(renderFilePage(space, file, req.params.id, filePath, annotations));
+    let html = renderFilePage(space, file, req.params.id, filePath, annotations);
+    if (req.query.sent === "1") {
+      html = html.replace("</h1>", '</h1><div style="background:#dafbe1;border:1px solid #1a7f37;border-radius:6px;padding:10px 14px;margin:8px 0;color:#1a7f37;">✅ 已发送到群聊</div>');
+    }
+    res.type("text/html").send(html);
   } catch (err: any) { res.status(500).send(err.message); }
 });
 
@@ -561,12 +592,28 @@ router.post("/s/:id/annotation-to-chat/:annId", async (req, res) => {
     const space = await storage.getSpace(req.params.id);
     if (!space) return res.redirect(`/s/${req.params.id}`);
 
-    // Store as pending notification for the agent to pick up
+    const baseUrl = getBaseUrl(req);
+    const message = `💬 批注通知\n\n👤 ${ann.author} → 📄 ${ann.filePath}${ann.line > 0 ? ` 第${ann.line}行` : ""}\n\n> ${ann.content}\n\n🔗 查看: ${baseUrl}/s/${req.params.id}/view/${ann.filePath}`;
+
+    if (space.webhookUrl) {
+      // Send to webhook
+      try {
+        await fetch(space.webhookUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content: message, text: message, msg_type: "text" }),
+        });
+      } catch (e: any) {
+        console.error(`[context] Webhook failed: ${e.message}`);
+      }
+    }
+
+    // Also store in notification queue
     await storage.addNotification(req.params.id, {
       type: "annotation",
       channel: space.channel,
       target: space.groupId,
-      message: `💬 批注 @${ann.author} → ${ann.filePath}${ann.line > 0 ? ` 第${ann.line}行` : ""}:\n\n${ann.content}\n\n📎 查看: ${getBaseUrl(req)}/ctx/${req.params.id}/${ann.filePath}`,
+      message,
       createdBy: "web-user",
     });
 
@@ -638,11 +685,11 @@ router.get("/s/:id/annotations", async (req, res) => {
         </form>
         <form method="POST" action="/s/${req.params.id}/annotation-to-task/${a.id}" style="display:inline;margin-left:4px;">
           <input type="hidden" name="filePath" value="${esc(a.filePath)}">
-          <button type="submit" class="btn-small">📋 转为任务</button>
+          <button type="submit" class="btn-small" title="写入 TASK.md 并标记批注为已处理">📋 转为任务</button>
         </form>
         <form method="POST" action="/s/${req.params.id}/annotation-to-chat/${a.id}" style="display:inline;margin-left:4px;">
           <input type="hidden" name="filePath" value="${esc(a.filePath)}">
-          <button type="submit" class="btn-small">📢 发到群</button>
+          <button type="submit" class="btn-small" title="通过 Webhook 发送到群聊（需先在空间设置中配置 Webhook）">📢 发到群</button>
         </form>
       </div>
     `).join("");
@@ -846,6 +893,17 @@ async function renderSpacePage(spaceId: string, space: any): Promise<string> {
         <code><script>document.write(location.origin)</script>/ctx/${spaceId}/SPACE.md</code>
       </p>
     </div>
+
+    <div style="background:#fff8c5;border:1px solid #d4a72c;border-radius:8px;padding:16px;margin-top:16px;">
+      <h3 style="margin-top:0;">🔔 群通知设置</h3>
+      <p style="font-size:13px;">配置 Webhook URL 后，点"📢 发到群"会把批注直接发到群聊。支持 Discord Webhook / 飞书 / 钉钉 / 企微等。</p>
+      <form method="POST" action="/s/${spaceId}/settings" style="display:flex;gap:8px;align-items:center;">
+        <input name="webhookUrl" value="${esc(space.webhookUrl || "")}" placeholder="https://discord.com/api/webhooks/... 或其他 Webhook URL" style="flex:1;padding:6px 10px;">
+        <button type="submit">保存</button>
+      </form>
+      ${space.webhookUrl ? '<p style="font-size:12px;color:#1a7f37;margin:4px 0 0;">✅ Webhook 已配置</p>' : '<p style="font-size:12px;color:#656d76;margin:4px 0 0;">⚠️ 未配置 — "发到群"功能暂不可用</p>'}
+    </div>
+
     <p><a href="/s">← 首页</a></p>
   `);
 }
@@ -889,11 +947,11 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
         </form>
         <form method="POST" action="/s/${spaceId}/annotation-to-task/${a.id}" style="display:inline;margin-left:4px;">
           <input type="hidden" name="filePath" value="${esc(filePath)}">
-          <button type="submit" class="btn-small">📋 转为任务</button>
+          <button type="submit" class="btn-small" title="写入 TASK.md 并标记批注为已处理">📋 转为任务</button>
         </form>
         <form method="POST" action="/s/${spaceId}/annotation-to-chat/${a.id}" style="display:inline;margin-left:4px;">
           <input type="hidden" name="filePath" value="${esc(filePath)}">
-          <button type="submit" class="btn-small">📢 发到群</button>
+          <button type="submit" class="btn-small" title="通过 Webhook 发送到群聊（需先在空间设置中配置 Webhook）">📢 发到群</button>
         </form>
       </div>
     `).join("")
