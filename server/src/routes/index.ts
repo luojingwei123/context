@@ -27,7 +27,13 @@ function getBaseUrl(req: any): string {
 // ════════════════════════════════════════════════════════════════
 
 router.get("/health", (_req, res) => {
-  res.json({ status: "ok", service: "context-server", version: "1.1.0" });
+  res.json({
+    status: "ok",
+    service: "context-server",
+    version: "1.3.0",
+    pluginVersion: "1.0.7",
+    updateCommand: "clawhub update context-collab --force",
+  });
 });
 
 // ─── Space CRUD ───
