@@ -241,6 +241,10 @@
 
 - [x] GitHub 仓库创建：https://github.com/luojingwei123/context
 - [x] PRD 文档完成
-- [x] v0.1 骨架代码已提交（server + plugin 结构）
-- [ ] v0.1 验证：装依赖、跑 server、curl 测试
-- [ ] v0.2 开始
+- [x] v0.1 骨架 — Server CRUD 全部验证通过
+- [x] v0.2 注入 — Plugin tools (execute+jsonResult) 全部可用
+- [x] v0.3 裂变 — URL 分流 + Gateway HTTP route 验证通过
+- [x] v0.4 联调 — session key 解析修正 + Space 创建（待用户群测试）
+- [x] v0.5 体验 — 5个斜杠命令实现 + bootstrap hook
+- [x] v0.6 协议 — 4个模板完善 + token 裁剪
+- [x] v1.0 发布 — README 完善 + 代码清理
