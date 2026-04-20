@@ -358,13 +358,16 @@ router.get("/ctx/:spaceId/*", async (req, res) => {
 /** Home: list all spaces */
 router.get("/s", async (_req, res) => {
   try {
-    const spaces = await storage.listSpaces();
-    const items = spaces.map((s: any) => 
-      `<li><a href="/s/${s.id}">📁 <b>${esc(s.name)}</b></a> <small>(${s.channel} · ${new Date(s.createdAt).toLocaleDateString("zh-CN")})</small></li>`
-    ).join("\n");
-    res.type("text/html").send(page("Context Spaces", `
-      <h1>📦 Context Spaces</h1>
-      <ul>${items || "<li>暂无空间</li>"}</ul>
+    res.type("text/html").send(page("Context", `
+      <h1>📦 Context</h1>
+      <p>多 Agent 协作协议引擎 — 共享空间 + 自动注入上下文</p>
+      <hr>
+      <h3>🔗 已有空间？</h3>
+      <p>直接访问你的空间地址：</p>
+      <form onsubmit="location.href='/s/'+document.getElementById('sid').value;return false;" style="margin:16px 0;">
+        <input id="sid" placeholder="输入 Space ID" style="width:240px;" required>
+        <button type="submit">进入</button>
+      </form>
       <hr>
       <h3>➕ 创建新空间</h3>
       <form method="POST" action="/s/create">
@@ -375,6 +378,9 @@ router.get("/s", async (_req, res) => {
         <label>创建者: <input name="createdBy" value="web-user"></label><br><br>
         <button type="submit">创建</button>
       </form>
+      <hr>
+      <p style="color:#656d76;font-size:13px;">每个空间有独立地址：<code>/s/{spaceId}</code><br>
+      由 Agent 或斜杠命令创建空间后会返回专属链接。</p>
     `));
   } catch (err: any) { res.status(500).send(err.message); }
 });
@@ -812,7 +818,7 @@ async function renderSpacePage(spaceId: string, space: any): Promise<string> {
       <b>AI Agent:</b> <code><script>document.write(location.origin)</script>/ctx/${spaceId}/文件路径</code><br>
       <b>人类浏览器:</b> <code><script>document.write(location.origin)</script>/s/${spaceId}</code>
     </p>
-    <p><a href="/s">← 所有空间</a></p>
+    <p><a href="/s">← 首页</a></p>
   `);
 }
 
