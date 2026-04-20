@@ -30,8 +30,8 @@ router.get("/health", (_req, res) => {
   res.json({
     status: "ok",
     service: "context-server",
-    version: "1.3.0",
-    pluginVersion: "1.0.7",
+    version: "1.4.0",
+    pluginVersion: "1.0.8",
     updateCommand: "clawhub update context-collab --force",
   });
 });
