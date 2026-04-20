@@ -30,6 +30,33 @@ export async function getSpace(spaceId: string): Promise<Space | null> {
   return fs.readJson(metaPath);
 }
 
+/** Delete an entire space */
+export async function deleteSpace(spaceId: string): Promise<boolean> {
+  const dir = spaceDir(spaceId);
+  if (!(await fs.pathExists(dir))) return false;
+
+  // Get space meta to clean up index
+  const meta = await getSpace(spaceId);
+
+  // Remove the space directory
+  await fs.remove(dir);
+
+  // Remove from index
+  if (meta) {
+    const indexPath = path.join(DATA_DIR, "index.json");
+    if (await fs.pathExists(indexPath)) {
+      const index: Record<string, string> = await fs.readJson(indexPath);
+      const key = `${meta.channel}:${meta.groupId}`;
+      if (index[key] === spaceId) {
+        delete index[key];
+        await fs.writeJson(indexPath, index, { spaces: 2 });
+      }
+    }
+  }
+
+  return true;
+}
+
 /** Find space by channel + groupId */
 export async function findSpace(query: SpaceLookupQuery): Promise<Space | null> {
   const indexPath = path.join(DATA_DIR, "index.json");

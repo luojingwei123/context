@@ -134,6 +134,24 @@ export default definePluginEntry({
     });
 
     api.registerTool({
+      name: "context_delete_space",
+      label: "Delete Context Space",
+      description: "Delete an entire Context space and all its files. This is irreversible.",
+      parameters: {
+        type: "object",
+        properties: {
+          space_id: { type: "string", description: "Space ID to delete" },
+        },
+        required: ["space_id"],
+      },
+      execute: async (_id: string, params: any) => {
+        const { space_id } = params;
+        const data = await ctxFetch(serverUrl, "DELETE", `/api/spaces/${space_id}`);
+        return jsonResult(data);
+      },
+    });
+
+    api.registerTool({
       name: "context_lookup_space",
       label: "Lookup Context Space",
       description: "Look up the Context space associated with a specific channel group. Use this to check if a group already has a shared space.",
@@ -621,7 +639,7 @@ export default definePluginEntry({
       logger.info("[context] Agent bootstrap — injected Context rules into AGENTS.md");
     }, { name: "context-bootstrap" });
 
-    logger.info("[context] ✅ Plugin v1.2.0 registered (14 tools, prompt hook, HTTP routes, 5 commands)");
+    logger.info("[context] ✅ Plugin v1.2.0 registered (15 tools, prompt hook, HTTP routes, 5 commands)");
   },
 });
 

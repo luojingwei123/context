@@ -68,6 +68,15 @@ router.get("/spaces/:id", async (req, res) => {
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+/** Delete a space */
+router.delete("/spaces/:id", async (req, res) => {
+  try {
+    const deleted = await storage.deleteSpace(req.params.id);
+    if (!deleted) return res.status(404).json({ error: "Space not found" });
+    res.json({ success: true, message: "Space deleted" });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 router.get("/spaces", async (_req, res) => {
   try { res.json({ spaces: await storage.listSpaces() }); }
   catch (err: any) { res.status(500).json({ error: err.message }); }
