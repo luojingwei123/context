@@ -175,8 +175,12 @@ export async function getFile(spaceId: string, filePath: string): Promise<SpaceF
   const fullPath = path.join(dir, filePath);
   if (!(await fs.pathExists(fullPath))) return null;
 
+  // Determine if binary
+  const mime = guessMimeType(filePath);
+  const isBinary = !mime.startsWith("text/") && !["application/json", "application/javascript", "application/typescript"].includes(mime);
+
   // Read content
-  const content = await fs.readFile(fullPath, "utf-8");
+  const content = isBinary ? "" : await fs.readFile(fullPath, "utf-8");
   const stat = await fs.stat(fullPath);
 
   // Read metadata if exists
@@ -375,6 +379,14 @@ export async function searchFiles(spaceId: string, query: string): Promise<Array
 // Helpers
 // ═══════════════════════════════════════
 
+/** Get raw file buffer (for binary downloads) */
+export async function getFileRaw(spaceId: string, filePath: string): Promise<{ buffer: Buffer; mimeType: string } | null> {
+  const fullPath = path.join(spaceDir(spaceId), "files", filePath);
+  if (!(await fs.pathExists(fullPath))) return null;
+  const buffer = await fs.readFile(fullPath);
+  return { buffer, mimeType: guessMimeType(filePath) };
+}
+
 function guessMimeType(filePath: string): string {
   const ext = path.extname(filePath).toLowerCase();
   const map: Record<string, string> = {
@@ -389,6 +401,15 @@ function guessMimeType(filePath: string): string {
     ".png": "image/png",
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".svg": "image/svg+xml",
+    ".webp": "image/webp",
+    ".doc": "application/msword",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xls": "application/vnd.ms-excel",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".ppt": "application/vnd.ms-powerpoint",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   };
   return map[ext] || "application/octet-stream";
 }

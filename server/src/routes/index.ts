@@ -372,15 +372,25 @@ router.get("/ctx/:spaceId/*", async (req, res) => {
     if (wantsHtml) {
       // Human browser → rendered page with annotations
       const annotations = await storage.getAnnotations(spaceId, filePath);
-      return res.type("text/html").send(renderFilePage(space, file, spaceId, filePath, annotations));
+      return res.type("text/html").send(renderFilePage(space, file, spaceId, filePath, annotations, req));
     }
 
     if (hasPlugin) {
-      // Agent with plugin → raw content
+      // Agent with plugin → raw content (binary files get raw buffer)
+      const isBinary = !file.mimeType?.startsWith("text/") && !["application/json", "application/javascript", "application/typescript"].includes(file.mimeType || "");
+      if (isBinary) {
+        const raw = await storage.getFileRaw(spaceId, filePath);
+        if (raw) return res.type(raw.mimeType).send(raw.buffer);
+      }
       return res.type(file.mimeType).send(file.content);
     }
 
-    // Agent without plugin → content + install hint
+    // Agent without plugin → content + install hint (or raw for binary)
+    const isBinary = !file.mimeType?.startsWith("text/") && !["application/json", "application/javascript", "application/typescript"].includes(file.mimeType || "");
+    if (isBinary) {
+      const raw = await storage.getFileRaw(spaceId, filePath);
+      if (raw) return res.type(raw.mimeType).send(raw.buffer);
+    }
     const baseUrl = getBaseUrl(req);
     const hint = `\n\n---\n\n## 🔌 加入协作\n\n你正在查看 **${space.name}** 的共享文件。安装 Context 插件后，你可以：\n- ✅ 自动获取项目协作上下文（SPACE.md / TEAM.md / TASK.md）\n- ✅ 读写共享文件、管理任务、查看批注\n- ✅ 在群里 @你 时自动注入协作协议\n\n**一键安装：**\n\`\`\`\nclawhub install context-collab\n\`\`\`\n\n**不装插件也行** — 你可以直接用 web_fetch 读取文件：\n- 文件列表: ${baseUrl}/ctx/${req.params.spaceId}/\n- 当前文件: ${baseUrl}/ctx/${req.params.spaceId}/${filePath}\n- Web UI: ${baseUrl}/s/${req.params.spaceId}\n\n**Space ID:** \`${req.params.spaceId}\`\n`;
     return res.type("text/markdown").send(file.content + hint);
@@ -471,7 +481,7 @@ router.get("/s/:id/view/*", async (req, res) => {
     const file = await storage.getFile(req.params.id, filePath);
     if (!file) return res.status(404).send(notFoundPage(`File not found: ${filePath}`));
     const annotations = await storage.getAnnotations(req.params.id, filePath);
-    let html = renderFilePage(space, file, req.params.id, filePath, annotations);
+    let html = renderFilePage(space, file, req.params.id, filePath, annotations, req);
     if (req.query.sent === "1") {
       html = html.replace("</h1>", '</h1><div style="background:#dafbe1;border:1px solid #1a7f37;border-radius:6px;padding:10px 14px;margin:8px 0;color:#1a7f37;">✅ 已发送到群聊</div>');
     }
@@ -630,8 +640,6 @@ router.post("/s/:id/annotation-to-chat/:annId", async (req, res) => {
 /** Upload file (multipart form with actual file) */
 router.post("/s/:id/upload", async (req, res) => {
   try {
-    // Handle multipart manually using raw body (express doesn't parse multipart by default)
-    // We'll use a simple approach: read the raw request
     const contentType = req.headers["content-type"] || "";
     if (contentType.includes("multipart/form-data")) {
       const boundary = contentType.split("boundary=")[1];
@@ -642,27 +650,40 @@ router.post("/s/:id/upload", async (req, res) => {
       req.on("end", async () => {
         try {
           const body = Buffer.concat(chunks);
-          const bodyStr = body.toString("latin1");
+          const boundaryBuf = Buffer.from(`--${boundary}`);
           
-          // Parse each file part
-          const parts = bodyStr.split(`--${boundary}`).filter(p => p.includes("filename="));
+          // Split by boundary
+          let start = 0;
+          const parts: Buffer[] = [];
+          while (true) {
+            const idx = body.indexOf(boundaryBuf, start);
+            if (idx < 0) break;
+            if (start > 0) parts.push(body.slice(start, idx));
+            start = idx + boundaryBuf.length + 2; // skip \r\n
+          }
+          
           for (const part of parts) {
-            const filenameMatch = part.match(/filename="([^"]+)"/);
-            if (!filenameMatch) continue;
-            const filename = filenameMatch[1];
-            
-            // Get content after double CRLF
-            const headerEnd = part.indexOf("\r\n\r\n");
+            const headerEnd = part.indexOf(Buffer.from("\r\n\r\n"));
             if (headerEnd < 0) continue;
-            const fileContent = part.slice(headerEnd + 4).replace(/\r\n$/, "").replace(/--$/, "");
             
-            await storage.writeFile(req.params.id, filename, fileContent, "web-upload");
+            const headerStr = part.slice(0, headerEnd).toString("utf-8");
+            const filenameMatch = headerStr.match(/filename="([^"]+)"/);
+            if (!filenameMatch) continue;
+            
+            const filename = filenameMatch[1];
+            const fileData = part.slice(headerEnd + 4);
+            // Remove trailing \r\n
+            const trimmed = fileData.length > 2 && fileData[fileData.length - 2] === 0x0d && fileData[fileData.length - 1] === 0x0a
+              ? fileData.slice(0, -2)
+              : fileData;
+            
+            const content = trimmed.toString("utf-8");
+            await storage.writeFile(req.params.id, filename, content, "web-upload");
           }
           res.redirect(`/s/${req.params.id}`);
         } catch (e: any) { res.status(500).send(e.message); }
       });
     } else {
-      // Fallback: JSON body
       const { path: filePath, content, modifiedBy } = req.body;
       if (!filePath) return res.status(400).send("path required");
       await storage.writeFile(req.params.id, filePath, content || "", modifiedBy || "web-user");
@@ -1046,7 +1067,7 @@ async function renderSpacePage(spaceId: string, space: any): Promise<string> {
   `);
 }
 
-function renderFilePage(space: any, file: any, spaceId: string, filePath: string, annotations?: any[]): string {
+function renderFilePage(space: any, file: any, spaceId: string, filePath: string, annotations?: any[], req?: any): string {
   const openAnns = (annotations || []).filter((a: any) => a.status === "open");
   const resolvedAnns = (annotations || []).filter((a: any) => a.status === "resolved");
 
@@ -1120,11 +1141,18 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
   } else if (isOffice) {
     const ext = filePath.split(".").pop()?.toLowerCase() || "";
     const icons: Record<string, string> = { doc: "📘", docx: "📘", pdf: "📕", xls: "📗", xlsx: "📗", ppt: "📙", pptx: "📙" };
-    contentHtml = `<div class="office-preview">
-      <div class="icon">${icons[ext] || "📄"}</div>
-      <h3>${esc(filePath)}</h3>
-      <p class="info">此格式暂不支持在线预览</p>
-      <a href="/ctx/${spaceId}/${filePath}" class="btn btn-primary" download>⬇️ 下载文件</a>
+    const fileUrl = `${getBaseUrl(req)}/ctx/${spaceId}/${filePath}`;
+    const viewerUrl = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(fileUrl)}`;
+    const isPdf = ext === "pdf";
+    const previewFrame = isPdf
+      ? `<iframe src="${fileUrl}" style="width:100%;height:600px;border:1px solid var(--border);border-radius:var(--radius);" title="PDF Preview"></iframe>`
+      : `<iframe src="${viewerUrl}" style="width:100%;height:600px;border:1px solid var(--border);border-radius:var(--radius);" title="Office Preview"></iframe>`;
+    contentHtml = `<div style="margin-top:16px;">
+      ${previewFrame}
+      <div style="margin-top:12px;text-align:center;">
+        <a href="/ctx/${spaceId}/${filePath}" class="btn btn-primary" download>⬇️ 下载文件</a>
+        <span style="margin-left:12px;font-size:13px;color:var(--text-secondary);">${icons[ext] || "📄"} ${esc(filePath)} (${ext.toUpperCase()})</span>
+      </div>
     </div>`;
   } else if (isMd) {
     contentHtml = `<div class="card" style="padding:20px 24px;">${mdToHtml(file.content)}</div>
@@ -1182,20 +1210,31 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
       </form>
     </div>
 
-    <!-- 浮动批注弹窗 -->
-    <div id="floatingAnnotation" style="display:none;position:fixed;bottom:20px;right:20px;width:380px;background:#fff;border:1px solid #d1d9e0;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.2);padding:16px;z-index:9998;">
+    <!-- 浮动工具栏（选中文字后在上方弹出） -->
+    <div id="selToolbar" style="display:none;position:absolute;background:#1e293b;color:#fff;border-radius:8px;padding:4px 6px;box-shadow:0 4px 12px rgba(0,0,0,.3);z-index:9999;font-size:13px;white-space:nowrap;">
+      <button onclick="doAnnotate()" style="background:none;border:none;color:#fff;cursor:pointer;padding:4px 10px;border-radius:4px;font-size:13px;">💬 批注</button>
+      <button onclick="doCopyRef()" style="background:none;border:none;color:#fff;cursor:pointer;padding:4px 10px;border-radius:4px;font-size:13px;">🔗 引用</button>
+      <button onclick="doCopyText()" style="background:none;border:none;color:#fff;cursor:pointer;padding:4px 10px;border-radius:4px;font-size:13px;">📋 复制</button>
+      <button onclick="doCreateTask()" style="background:none;border:none;color:#fff;cursor:pointer;padding:4px 10px;border-radius:4px;font-size:13px;">📌 任务</button>
+      <div style="position:absolute;bottom:-6px;left:50%;transform:translateX(-50%);width:12px;height:12px;background:#1e293b;transform:translateX(-50%) rotate(45deg);"></div>
+    </div>
+
+    <!-- 浮动批注输入框（出现在选中文字下方） -->
+    <div id="floatingAnnotation" style="display:none;position:absolute;width:360px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-md);padding:16px;z-index:9998;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-        <b>💬 快速批注</b>
-        <span id="floatClose" style="cursor:pointer;font-size:18px;">✕</span>
+        <b>💬 添加批注</b>
+        <span id="floatClose" style="cursor:pointer;font-size:18px;color:var(--text-muted);">✕</span>
       </div>
-      <p id="floatLineInfo" style="color:#0969da;font-size:13px;margin:4px 0;"></p>
+      <p id="floatLineInfo" style="color:var(--primary);font-size:13px;margin:4px 0;"></p>
       <form method="POST" action="/s/${spaceId}/annotate">
         <input type="hidden" name="filePath" value="${esc(filePath)}">
         <input type="hidden" name="line" id="floatLine" value="0">
         <input type="hidden" name="endLine" id="floatEndLine" value="0">
-        <textarea name="content" id="floatContent" style="width:100%;height:60px;font-size:13px;" placeholder="写下修改意见..." required></textarea><br>
-        <input name="author" placeholder="你的名字" style="width:120px;margin-top:6px;">
-        <button type="submit" style="margin-left:8px;">💬 提交</button>
+        <textarea name="content" id="floatContent" style="width:100%;height:60px;font-size:13px;border:1px solid var(--border);border-radius:var(--radius);padding:8px;" placeholder="写下修改意见..." required></textarea><br>
+        <div style="display:flex;gap:8px;margin-top:8px;align-items:center;">
+          <input name="author" placeholder="你的名字" style="flex:1;">
+          <button type="submit" class="btn btn-primary" style="padding:6px 14px;">💬 提交</button>
+        </div>
       </form>
     </div>
 
@@ -1204,129 +1243,117 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
     const FILE_PATH = '${filePath.replace(/'/g, "\\'")}';
     const CTX_URL = location.origin + '/ctx/${spaceId}/${filePath}';
 
+    let selStartLine = 0, selEndLine = 0, selText = '';
+
     // Close floating annotation
     document.getElementById('floatClose').addEventListener('click', function() {
       document.getElementById('floatingAnnotation').style.display = 'none';
     });
 
-    // 框选代码行自动定位行号 + 弹窗
+    // Hide toolbar on click elsewhere
+    document.addEventListener('mousedown', function(e) {
+      var toolbar = document.getElementById('selToolbar');
+      var floatAnn = document.getElementById('floatingAnnotation');
+      if (!toolbar.contains(e.target) && !floatAnn.contains(e.target)) {
+        toolbar.style.display = 'none';
+      }
+    });
+
+    // Show toolbar on text selection in code area
     var codeTable = document.querySelector('.code-table');
     if (codeTable) {
-      codeTable.addEventListener('mouseup', function() {
-        const sel = window.getSelection();
-        if (!sel || sel.isCollapsed) return;
+      codeTable.addEventListener('mouseup', function(e) {
+        setTimeout(function() {
+          var sel = window.getSelection();
+          if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
 
-        let startNode = sel.anchorNode;
-        let endNode = sel.focusNode;
+          selText = sel.toString().trim();
 
-        function findRow(node) {
-          while (node && node.tagName !== 'TR') node = node.parentElement;
-          return node;
-        }
+          // Find line numbers
+          function findRow(node) {
+            while (node && node.tagName !== 'TR') node = node.parentElement;
+            return node;
+          }
+          var startRow = findRow(sel.anchorNode);
+          var endRow = findRow(sel.focusNode);
+          if (!startRow || !endRow) return;
 
-        const startRow = findRow(startNode);
-        const endRow = findRow(endNode);
-        if (!startRow || !endRow) return;
+          var rows = Array.from(document.querySelectorAll('.code-table tr'));
+          selStartLine = rows.indexOf(startRow) + 1;
+          selEndLine = rows.indexOf(endRow) + 1;
+          if (selStartLine > selEndLine) { var tmp = selStartLine; selStartLine = selEndLine; selEndLine = tmp; }
 
-        const rows = Array.from(document.querySelectorAll('.code-table tr'));
-        let startIdx = rows.indexOf(startRow) + 1;
-        let endIdx = rows.indexOf(endRow) + 1;
-        if (startIdx > endIdx) [startIdx, endIdx] = [endIdx, startIdx];
+          // Position toolbar above selection
+          var rect = sel.getRangeAt(0).getBoundingClientRect();
+          var toolbar = document.getElementById('selToolbar');
+          toolbar.style.left = (rect.left + rect.width/2 - 120 + window.scrollX) + 'px';
+          toolbar.style.top = (rect.top + window.scrollY - 44) + 'px';
+          toolbar.style.display = 'block';
 
-        // Update bottom form
-        document.getElementById('annLine').value = startIdx;
-        document.getElementById('annEndLine').value = endIdx;
-        document.getElementById('selStartLine').textContent = startIdx;
-        document.getElementById('selEndLine').textContent = endIdx;
-        document.getElementById('selectionHint').style.display = 'block';
-
-        // Show floating popup
-        document.getElementById('floatLine').value = startIdx;
-        document.getElementById('floatEndLine').value = endIdx;
-        document.getElementById('floatLineInfo').textContent = '📌 第 ' + startIdx + (endIdx > startIdx ? '-' + endIdx : '') + ' 行';
-        document.getElementById('floatingAnnotation').style.display = 'block';
-
-        const selectedText = sel.toString().trim();
-        var floatContent = document.getElementById('floatContent');
-        if (floatContent && !floatContent.value) {
-          floatContent.placeholder = '针对: "' + selectedText.slice(0, 40) + (selectedText.length > 40 ? '...' : '') + '"';
-        }
+          // Update bottom form too
+          document.getElementById('annLine').value = selStartLine;
+          document.getElementById('annEndLine').value = selEndLine;
+          document.getElementById('selStartLine').textContent = selStartLine;
+          document.getElementById('selEndLine').textContent = selEndLine;
+          document.getElementById('selectionHint').style.display = 'block';
+        }, 10);
       });
     }
 
-    // 右键菜单
-    const ctxMenu = document.createElement('div');
-    ctxMenu.id = 'ctx-menu';
-    ctxMenu.style.cssText = 'display:none;position:fixed;background:#fff;border:1px solid #d1d9e0;border-radius:8px;padding:4px 0;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:9999;min-width:180px;font-size:13px;';
-    ctxMenu.innerHTML = '<div class="ctx-item" data-action="copy-ref">📋 拷贝引用 URL</div>' +
-      '<div class="ctx-item" data-action="add-annotation">💬 添加批注</div>' +
-      '<div class="ctx-item" data-action="create-task">📌 创建任务</div>' +
-      '<hr style="margin:4px 0;border:none;border-top:1px solid #eee;">' +
-      '<div class="ctx-item" data-action="copy-text">📄 拷贝文本</div>';
-    document.body.appendChild(ctxMenu);
-
-    // Style menu items
-    const style = document.createElement('style');
-    style.textContent = '.ctx-item{padding:6px 14px;cursor:pointer;}.ctx-item:hover{background:#f6f8fa;}';
-    document.head.appendChild(style);
-
-    // Show menu on right-click in code area
-    document.querySelector('.code-table').addEventListener('contextmenu', function(e) {
-      const sel = window.getSelection();
-      if (!sel || sel.isCollapsed) return; // Only show when text is selected
-
-      e.preventDefault();
-      ctxMenu.style.display = 'block';
-      ctxMenu.style.left = e.clientX + 'px';
-      ctxMenu.style.top = e.clientY + 'px';
-    });
-
-    // Hide menu on click elsewhere
-    document.addEventListener('click', function() {
-      ctxMenu.style.display = 'none';
-    });
-
-    // Menu actions
-    ctxMenu.addEventListener('click', function(e) {
-      const action = e.target.dataset?.action;
-      if (!action) return;
-      ctxMenu.style.display = 'none';
-
-      const sel = window.getSelection();
-      const selectedText = sel ? sel.toString().trim() : '';
-      const lineInput = document.getElementById('annLine');
-      const line = lineInput ? lineInput.value : '0';
-
-      switch(action) {
-        case 'copy-ref':
-          const refUrl = CTX_URL + (line > 0 ? '#L' + line : '');
-          navigator.clipboard.writeText(refUrl).then(() => alert('已复制: ' + refUrl));
-          break;
-        case 'add-annotation':
-          document.getElementById('floatingAnnotation').style.display = 'block';
-          document.getElementById('floatContent').focus();
-          if (selectedText) {
-            document.getElementById('floatContent').value = '';
-            document.getElementById('floatContent').placeholder = '针对: "' + selectedText.slice(0, 40) + '"';
-          }
-          break;
-        case 'create-task':
-          const taskDesc = selectedText.slice(0, 60) || '来自 ' + FILE_PATH;
-          if (confirm('将选中内容创建为任务?\\n\\n"' + taskDesc + '"')) {
-            fetch('/api/spaces/' + SPACE_ID + '/annotations', {
-              method: 'POST',
-              headers: {'Content-Type':'application/json'},
-              body: JSON.stringify({filePath: FILE_PATH, line: parseInt(line)||0, content: selectedText || taskDesc, author: 'web-user', authorType: 'human'})
-            }).then(r => r.json()).then(d => {
-              return fetch('/api/spaces/' + SPACE_ID + '/annotations/' + d.annotation.id + '/to-task', {method:'POST', headers:{'Content-Type':'application/json'}});
-            }).then(() => { alert('已创建任务！'); location.reload(); });
-          }
-          break;
-        case 'copy-text':
-          navigator.clipboard.writeText(selectedText).then(() => alert('已复制文本'));
-          break;
+    function doAnnotate() {
+      document.getElementById('selToolbar').style.display = 'none';
+      var floatAnn = document.getElementById('floatingAnnotation');
+      document.getElementById('floatLine').value = selStartLine;
+      document.getElementById('floatEndLine').value = selEndLine;
+      document.getElementById('floatLineInfo').textContent = '📌 第 ' + selStartLine + (selEndLine > selStartLine ? '-' + selEndLine : '') + ' 行';
+      var floatContent = document.getElementById('floatContent');
+      if (!floatContent.value) {
+        floatContent.placeholder = '针对: "' + selText.slice(0, 40) + (selText.length > 40 ? '...' : '') + '"';
       }
-    });
+      // Position near selection
+      var sel = window.getSelection();
+      if (sel && !sel.isCollapsed) {
+        var rect = sel.getRangeAt(0).getBoundingClientRect();
+        floatAnn.style.position = 'absolute';
+        floatAnn.style.left = Math.max(10, rect.left + window.scrollX - 50) + 'px';
+        floatAnn.style.top = (rect.bottom + window.scrollY + 10) + 'px';
+      }
+      floatAnn.style.display = 'block';
+      floatContent.focus();
+    }
+
+    function doCopyRef() {
+      document.getElementById('selToolbar').style.display = 'none';
+      var ref = CTX_URL + '#L' + selStartLine + (selEndLine > selStartLine ? '-L' + selEndLine : '');
+      navigator.clipboard.writeText(ref).then(function() { showToast('✅ 引用 URL 已复制'); });
+    }
+
+    function doCopyText() {
+      document.getElementById('selToolbar').style.display = 'none';
+      navigator.clipboard.writeText(selText).then(function() { showToast('✅ 已复制'); });
+    }
+
+    function doCreateTask() {
+      document.getElementById('selToolbar').style.display = 'none';
+      var content = selText.slice(0, 100);
+      fetch('/api/spaces/' + SPACE_ID + '/files/TASK.md').then(r => r.json()).then(data => {
+        var task = data.file ? data.file.content : '';
+        task += '\\n\\n### [ready] ' + content + ' (第' + selStartLine + '行, ' + FILE_PATH + ')';
+        return fetch('/api/spaces/' + SPACE_ID + '/files/TASK.md', {
+          method: 'PUT', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({content: task, modifiedBy: 'web-user'})
+        });
+      }).then(function() { showToast('✅ 已创建任务'); }).catch(function() { showToast('❌ 创建失败'); });
+    }
+
+    function showToast(msg) {
+      var t = document.createElement('div');
+      t.className = 'toast toast-success';
+      t.textContent = msg;
+      document.body.appendChild(t);
+      setTimeout(function() { t.remove(); }, 3000);
+    }
+
     </script>
   `);
 }
