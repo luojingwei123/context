@@ -621,13 +621,47 @@ router.post("/s/:id/annotation-to-chat/:annId", async (req, res) => {
   } catch (err: any) { res.status(500).send(err.message); }
 });
 
-/** Upload file (multipart form) */
+/** Upload file (multipart form with actual file) */
 router.post("/s/:id/upload", async (req, res) => {
   try {
-    const { path: filePath, content, modifiedBy } = req.body;
-    if (!filePath) return res.status(400).send("path required");
-    await storage.writeFile(req.params.id, filePath, content || "", modifiedBy || "web-user");
-    res.redirect(`/s/${req.params.id}`);
+    // Handle multipart manually using raw body (express doesn't parse multipart by default)
+    // We'll use a simple approach: read the raw request
+    const contentType = req.headers["content-type"] || "";
+    if (contentType.includes("multipart/form-data")) {
+      const boundary = contentType.split("boundary=")[1];
+      if (!boundary) return res.status(400).send("Invalid multipart");
+      
+      const chunks: Buffer[] = [];
+      req.on("data", (chunk: Buffer) => chunks.push(chunk));
+      req.on("end", async () => {
+        try {
+          const body = Buffer.concat(chunks);
+          const bodyStr = body.toString("latin1");
+          
+          // Parse each file part
+          const parts = bodyStr.split(`--${boundary}`).filter(p => p.includes("filename="));
+          for (const part of parts) {
+            const filenameMatch = part.match(/filename="([^"]+)"/);
+            if (!filenameMatch) continue;
+            const filename = filenameMatch[1];
+            
+            // Get content after double CRLF
+            const headerEnd = part.indexOf("\r\n\r\n");
+            if (headerEnd < 0) continue;
+            const fileContent = part.slice(headerEnd + 4).replace(/\r\n$/, "").replace(/--$/, "");
+            
+            await storage.writeFile(req.params.id, filename, fileContent, "web-upload");
+          }
+          res.redirect(`/s/${req.params.id}`);
+        } catch (e: any) { res.status(500).send(e.message); }
+      });
+    } else {
+      // Fallback: JSON body
+      const { path: filePath, content, modifiedBy } = req.body;
+      if (!filePath) return res.status(400).send("path required");
+      await storage.writeFile(req.params.id, filePath, content || "", modifiedBy || "web-user");
+      res.redirect(`/s/${req.params.id}`);
+    }
   } catch (err: any) { res.status(500).send(err.message); }
 });
 
@@ -786,52 +820,106 @@ router.get("/s/:id/version/:version/*", async (req, res) => {
 // ════════════════════════════════════════════════════════════════
 
 const CSS = `
-  * { box-sizing: border-box; }
-  body { font-family: -apple-system, system-ui, "Segoe UI", sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; line-height: 1.6; color: #1f2328; background: #fff; }
-  h1 { border-bottom: 1px solid #d1d9e0; padding-bottom: 12px; }
-  h2 { color: #24292f; margin-top: 30px; }
-  a { color: #0969da; text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  pre { background: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; border: 1px solid #d1d9e0; }
-  code { background: #eff1f3; padding: 2px 6px; border-radius: 3px; font-size: 0.9em; }
-  pre code { background: none; padding: 0; }
-  table { border-collapse: collapse; width: 100%; margin: 15px 0; }
-  th, td { border: 1px solid #d1d9e0; padding: 8px 12px; text-align: left; }
-  th { background: #f6f8fa; font-weight: 600; }
-  ul { padding-left: 20px; }
-  li { margin: 5px 0; }
-  small { color: #656d76; }
-  .breadcrumb { color: #656d76; margin-bottom: 20px; font-size: 14px; }
-  .breadcrumb a { color: #0969da; }
-  .meta { background: #f6f8fa; padding: 12px 16px; border-radius: 6px; margin: 16px 0; border: 1px solid #d1d9e0; font-size: 0.85em; color: #656d76; }
-  .meta b { color: #1f2328; }
-  .actions { margin: 16px 0; }
-  .actions a, .actions button { 
-    display: inline-block; padding: 6px 14px; border-radius: 6px; font-size: 13px; 
-    border: 1px solid #d1d9e0; background: #f6f8fa; color: #24292f; cursor: pointer; margin-right: 8px; text-decoration: none;
+  :root {
+    --primary: #2563eb;
+    --primary-hover: #1d4ed8;
+    --success: #16a34a;
+    --danger: #dc2626;
+    --warning: #d97706;
+    --bg: #f8fafc;
+    --bg-card: #ffffff;
+    --bg-hover: #f1f5f9;
+    --bg-code: #f1f5f9;
+    --border: #e2e8f0;
+    --border-strong: #cbd5e1;
+    --text: #0f172a;
+    --text-secondary: #64748b;
+    --text-muted: #94a3b8;
+    --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04);
+    --shadow-md: 0 4px 6px rgba(0,0,0,.07), 0 2px 4px rgba(0,0,0,.04);
+    --radius: 8px;
+    --radius-lg: 12px;
   }
-  .actions a:hover, .actions button:hover { background: #eaeef2; text-decoration: none; }
-  .actions .primary { background: #2da44e; color: #fff; border-color: #2da44e; }
-  .actions .primary:hover { background: #298e46; }
-  .actions .danger { color: #cf222e; border-color: #cf222e; }
-  .actions .danger:hover { background: #cf222e; color: #fff; }
-  .file-list { list-style: none; padding: 0; }
-  .file-list li { padding: 8px 12px; border-bottom: 1px solid #d1d9e0; display: flex; align-items: center; justify-content: space-between; }
-  .file-list li:hover { background: #f6f8fa; }
-  .file-list .file-info { display: flex; align-items: center; gap: 8px; }
-  .file-list .file-meta { font-size: 12px; color: #656d76; }
-  textarea { border: 1px solid #d1d9e0; border-radius: 6px; resize: vertical; }
-  input, select { padding: 6px 10px; border: 1px solid #d1d9e0; border-radius: 6px; }
-  button { padding: 6px 14px; border-radius: 6px; cursor: pointer; border: 1px solid #d1d9e0; }
-  form label { display: inline-block; margin: 8px 0; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, system-ui, "Segoe UI", "Noto Sans SC", sans-serif; margin: 0; padding: 0; line-height: 1.6; color: var(--text); background: var(--bg); }
+  .container { max-width: 960px; margin: 0 auto; padding: 24px 20px; }
+  .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px; margin-bottom: 20px; box-shadow: var(--shadow); }
+  .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+  .card-header h2 { margin: 0; font-size: 18px; }
+  h1 { font-size: 24px; font-weight: 700; margin: 0 0 8px; color: var(--text); }
+  h2 { font-size: 18px; font-weight: 600; color: var(--text); margin-top: 24px; }
+  h3 { font-size: 15px; font-weight: 600; color: var(--text); }
+  a { color: var(--primary); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  pre { background: var(--bg-code); padding: 14px; border-radius: var(--radius); overflow-x: auto; border: 1px solid var(--border); font-size: 13px; }
+  code { background: var(--bg-code); padding: 2px 6px; border-radius: 4px; font-size: 0.88em; font-family: "SF Mono", "Fira Code", monospace; }
+  pre code { background: none; padding: 0; }
+  .breadcrumb { color: var(--text-secondary); margin-bottom: 16px; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+  .breadcrumb a { color: var(--primary); font-weight: 500; }
+  .breadcrumb span { color: var(--text-muted); }
+  .meta { background: var(--bg-code); padding: 12px 16px; border-radius: var(--radius); margin: 12px 0; border: 1px solid var(--border); font-size: 13px; color: var(--text-secondary); }
+  .meta b { color: var(--text); }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .badge-agent { background: #dbeafe; color: #1e40af; }
+  .badge-human { background: #dcfce7; color: #166534; }
+  .badge-creator { background: #fef3c7; color: #92400e; }
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: var(--radius); font-size: 13px; font-weight: 500; border: 1px solid var(--border); background: var(--bg-card); color: var(--text); cursor: pointer; text-decoration: none; transition: all .15s; }
+  .btn:hover { background: var(--bg-hover); text-decoration: none; border-color: var(--border-strong); }
+  .btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .btn-primary:hover { background: var(--primary-hover); }
+  .btn-success { background: var(--success); color: #fff; border-color: var(--success); }
+  .btn-danger { background: transparent; color: var(--danger); border-color: var(--danger); }
+  .btn-danger:hover { background: var(--danger); color: #fff; }
+  .btn-small { padding: 4px 10px; font-size: 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-card); cursor: pointer; }
+  .btn-small:hover { background: var(--bg-hover); }
+  .file-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin: 16px 0; }
+  .file-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 8px; transition: all .15s; text-decoration: none; color: var(--text); }
+  .file-card:hover { border-color: var(--primary); box-shadow: var(--shadow-md); text-decoration: none; transform: translateY(-1px); }
+  .file-card .icon { font-size: 24px; }
+  .file-card .name { font-size: 13px; font-weight: 500; word-break: break-all; }
+  .file-card .meta { font-size: 11px; color: var(--text-muted); padding: 0; margin: 0; border: none; background: none; }
+  .member-list { display: flex; flex-wrap: wrap; gap: 10px; }
+  .member-chip { display: flex; align-items: center; gap: 6px; padding: 6px 12px; background: var(--bg-code); border: 1px solid var(--border); border-radius: 20px; font-size: 13px; }
+  .upload-zone { border: 2px dashed var(--border-strong); border-radius: var(--radius-lg); padding: 32px; text-align: center; cursor: pointer; transition: all .2s; margin: 16px 0; }
+  .upload-zone:hover, .upload-zone.drag-over { border-color: var(--primary); background: #eff6ff; }
+  .upload-zone p { margin: 8px 0; color: var(--text-secondary); font-size: 14px; }
+  .annotation-card { background: #fffbeb; border: 1px solid #fde68a; border-radius: var(--radius); padding: 12px 16px; margin: 8px 0; }
+  .annotation-card.resolved { background: var(--bg-code); border-color: var(--border); opacity: .7; }
+  .annotation-card .ann-header { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
+  .annotation-card .ann-content { font-size: 14px; }
+  .code-table { border-collapse: collapse; width: 100%; font-size: 13px; font-family: "SF Mono", "Fira Code", monospace; }
+  .code-table tr:hover { background: var(--bg-hover); }
+  .code-table .line-num { color: var(--text-muted); text-align: right; padding: 2px 12px 2px 8px; user-select: none; width: 40px; font-size: 12px; vertical-align: top; border-right: 1px solid var(--border); }
+  .code-table .line-content { white-space: pre-wrap; word-break: break-all; padding: 2px 12px; }
+  .add-annotation { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; margin-top: 20px; }
+  .toast { position: fixed; top: 20px; right: 20px; padding: 12px 20px; border-radius: var(--radius); font-size: 14px; z-index: 9999; animation: slideIn .3s ease; }
+  .toast-success { background: #dcfce7; border: 1px solid #86efac; color: #166534; }
+  @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+  .nav { background: var(--bg-card); border-bottom: 1px solid var(--border); padding: 12px 20px; margin-bottom: 24px; }
+  .nav-inner { max-width: 960px; margin: 0 auto; display: flex; align-items: center; gap: 16px; }
+  .nav-brand { font-weight: 700; font-size: 16px; color: var(--text); display: flex; align-items: center; gap: 8px; }
+  .office-preview { text-align: center; padding: 40px; background: var(--bg-code); border-radius: var(--radius-lg); border: 1px solid var(--border); }
+  .office-preview .icon { font-size: 48px; margin-bottom: 12px; }
+  .office-preview .info { color: var(--text-secondary); font-size: 14px; margin: 8px 0; }
+  .img-preview { text-align: center; padding: 20px; }
+  .img-preview img { max-width: 100%; border-radius: var(--radius); box-shadow: var(--shadow-md); }
+  @media (max-width: 640px) {
+    .container { padding: 16px 12px; }
+    .card { padding: 16px; }
+    .file-grid { grid-template-columns: 1fr; }
+    .card-header { flex-direction: column; align-items: flex-start; gap: 8px; }
+    .member-list { flex-direction: column; }
+  }
 `;
 
 function page(title: string, body: string): string {
-  return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} — Context</title><style>${CSS}</style></head><body>${body}</body></html>`;
+  return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} — Context</title><style>${CSS}</style></head><body>
+  <nav class="nav"><div class="nav-inner"><div class="nav-brand">📦 Context</div></div></nav>
+  <div class="container">${body}</div></body></html>`;
 }
 
 function notFoundPage(msg: string): string {
-  return page("Not Found", `<h1>404</h1><p>${esc(msg)}</p><a href="/s">← 回到首页</a>`);
+  return page("Not Found", `<div class="card"><h1>404</h1><p>${esc(msg)}</p><a href="/s" class="btn">← 回到首页</a></div>`);
 }
 
 async function renderSpacePage(spaceId: string, space: any): Promise<string> {
@@ -839,72 +927,116 @@ async function renderSpacePage(spaceId: string, space: any): Promise<string> {
   const members = await storage.getMembers(spaceId);
   const allAnnotations = await storage.getAnnotations(spaceId, undefined, "open");
 
-  const fileItems = files.map((f: any) => {
-    const icon = f.path.endsWith(".md") ? "📝" : f.path.match(/\.(png|jpg|jpeg|gif|svg)$/i) ? "🖼️" : "📄";
+  function fileIcon(p: string): string {
+    if (p.match(/\.(png|jpg|jpeg|gif|svg|webp)$/i)) return "🖼️";
+    if (p.match(/\.(md|markdown)$/i)) return "📝";
+    if (p.match(/\.json$/i)) return "📊";
+    if (p.match(/\.(doc|docx)$/i)) return "📘";
+    if (p.match(/\.(xls|xlsx)$/i)) return "📗";
+    if (p.match(/\.(ppt|pptx)$/i)) return "📙";
+    if (p.match(/\.pdf$/i)) return "📕";
+    if (p.match(/\.(ts|js|py|go|rs)$/i)) return "💻";
+    return "📄";
+  }
+
+  const fileCards = files.map((f: any) => {
     const size = f.size < 1024 ? `${f.size}B` : `${(f.size / 1024).toFixed(1)}KB`;
     const fileAnns = allAnnotations.filter((a: any) => a.filePath === f.path);
-    const annBadge = fileAnns.length > 0 ? ` <span style="background:#d4a72c;color:#fff;padding:1px 6px;border-radius:10px;font-size:11px;">💬${fileAnns.length}</span>` : "";
-    return `<li>
-      <div class="file-info">${icon} <a href="/s/${spaceId}/view/${f.path}">${esc(f.path)}</a>${annBadge}</div>
-      <div class="file-meta">${size} · v${f.version} · ${f.modifiedBy || ""}</div>
-    </li>`;
+    const annBadge = fileAnns.length > 0 ? `<span style="background:#f59e0b;color:#fff;padding:1px 6px;border-radius:10px;font-size:10px;">💬${fileAnns.length}</span>` : "";
+    return `<a href="/s/${spaceId}/view/${f.path}" class="file-card">
+      <div class="icon">${fileIcon(f.path)}</div>
+      <div class="name">${esc(f.path)} ${annBadge}</div>
+      <div class="meta">${size} · v${f.version} · ${f.modifiedBy || "unknown"}</div>
+    </a>`;
   }).join("");
 
-  const memberItems = members.map((m: any) =>
-    `<li>${m.type === "agent" ? "🤖" : "👤"} <b>${esc(m.name)}</b> — ${esc(m.role || "未分配")} ${m.capabilities?.length ? `<small>(${m.capabilities.join(", ")})</small>` : ""}</li>`
-  ).join("");
+  // Members: show creator + registered members
+  const creatorChip = `<div class="member-chip"><span class="badge badge-creator">创建者</span> ${esc(space.createdBy)}</div>`;
+  const memberChips = members.map((m: any) => {
+    const badge = m.type === "agent" ? '<span class="badge badge-agent">🤖 Agent</span>' : '<span class="badge badge-human">👤 人类</span>';
+    return `<div class="member-chip">${badge} ${esc(m.name)}${m.role ? ` · ${esc(m.role)}` : ""}</div>`;
+  }).join("");
 
   return page(space.name, `
-    <h1>📁 ${esc(space.name)}</h1>
-    <div class="meta">
-      <b>Space ID:</b> <code>${spaceId}</code> · <b>Channel:</b> ${esc(space.channel)} · <b>创建:</b> ${new Date(space.createdAt).toLocaleDateString("zh-CN")}
-    </div>
+    <div class="breadcrumb"><a href="/s">首页</a> <span>/</span> <b>${esc(space.name)}</b></div>
 
-    <h2>🔍 搜索</h2>
-    <form method="GET" action="/s/${spaceId}/search" style="margin-bottom:20px;">
-      <input name="q" placeholder="搜索文件内容..." style="width:300px;">
-      <button type="submit">搜索</button>
-    </form>
+    <div class="card">
+      <div class="card-header">
+        <h1>${esc(space.name)}</h1>
+        <span class="badge badge-agent">${esc(space.channel)}</span>
+      </div>
+      <div class="meta">
+        <b>Space ID:</b> <code>${spaceId}</code> · <b>创建:</b> ${new Date(space.createdAt).toLocaleDateString("zh-CN")} · <b>创建者:</b> ${esc(space.createdBy)}
+      </div>
 
-    <h2>📄 文件 (${files.length})</h2>
-    <div class="actions">
-      <a href="/s/${spaceId}/new" class="primary">➕ 新建文件</a>
-      ${allAnnotations.length > 0 ? `<a href="/s/${spaceId}/annotations">💬 全部批注 (${allAnnotations.length})</a>` : ""}
-    </div>
-    <ul class="file-list">${fileItems || "<li>暂无文件</li>"}</ul>
-
-    <h2>👥 成员 (${members.length})</h2>
-    <ul>${memberItems || "<li>暂无成员。通过 Agent 工具 <code>context_add_member</code> 添加。</li>"}</ul>
-
-    <hr>
-    <h3>🔗 分享地址</h3>
-    <p>
-      <b>AI Agent:</b> <code><script>document.write(location.origin)</script>/ctx/${spaceId}/文件路径</code><br>
-      <b>人类浏览器:</b> <code><script>document.write(location.origin)</script>/s/${spaceId}</code>
-    </p>
-
-    <div style="background:#ddf4ff;border:1px solid #54aeff;border-radius:8px;padding:16px;margin-top:16px;">
-      <h3 style="margin-top:0;">🤖 让你的 AI Agent 也加入协作</h3>
-      <p>只需一步，你的 Agent 就能读写这个空间的文件、自动获取任务上下文：</p>
-      <pre style="background:#0d1117;color:#e6edf3;padding:12px;border-radius:6px;font-size:14px;">clawhub install context-collab</pre>
-      <p style="font-size:13px;color:#656d76;">
-        安装后 Agent 会自动注入协作协议（SPACE.md / TEAM.md / TASK.md），在群里 @Agent 即可开始协作。<br>
-        <b>不想装插件？</b>让 Agent 直接 fetch 这个 URL 也能看到文件内容：<br>
-        <code><script>document.write(location.origin)</script>/ctx/${spaceId}/SPACE.md</code>
-      </p>
-    </div>
-
-    <div style="background:#fff8c5;border:1px solid #d4a72c;border-radius:8px;padding:16px;margin-top:16px;">
-      <h3 style="margin-top:0;">🔔 群通知设置</h3>
-      <p style="font-size:13px;">配置 Webhook URL 后，点"📢 发到群"会把批注直接发到群聊。支持 Discord Webhook / 飞书 / 钉钉 / 企微等。</p>
-      <form method="POST" action="/s/${spaceId}/settings" style="display:flex;gap:8px;align-items:center;">
-        <input name="webhookUrl" value="${esc(space.webhookUrl || "")}" placeholder="https://discord.com/api/webhooks/... 或其他 Webhook URL" style="flex:1;padding:6px 10px;">
-        <button type="submit">保存</button>
+      <form method="GET" action="/s/${spaceId}/search" style="margin-top:16px;display:flex;gap:8px;">
+        <input name="q" placeholder="搜索文件内容..." style="flex:1;">
+        <button type="submit" class="btn btn-primary">🔍 搜索</button>
       </form>
-      ${space.webhookUrl ? '<p style="font-size:12px;color:#1a7f37;margin:4px 0 0;">✅ Webhook 已配置</p>' : '<p style="font-size:12px;color:#656d76;margin:4px 0 0;">⚠️ 未配置 — "发到群"功能暂不可用</p>'}
     </div>
 
-    <p><a href="/s">← 首页</a></p>
+    <div class="card">
+      <div class="card-header">
+        <h2 style="margin:0;">📄 文件 (${files.length})</h2>
+        <div>
+          <a href="/s/${spaceId}/new" class="btn btn-primary">➕ 新建</a>
+          ${allAnnotations.length > 0 ? `<a href="/s/${spaceId}/annotations" class="btn">💬 批注 (${allAnnotations.length})</a>` : ""}
+        </div>
+      </div>
+      <div class="file-grid">${fileCards || '<p style="color:var(--text-muted);text-align:center;padding:20px;">暂无文件，点击上方"新建"或拖拽上传</p>'}</div>
+
+      <!-- 上传区域 -->
+      <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
+        <p>📁 拖拽文件到此处上传，或点击选择文件</p>
+        <p style="font-size:12px;color:var(--text-muted);">支持所有格式：文档、图片、代码文件等</p>
+        <form id="uploadForm" method="POST" action="/s/${spaceId}/upload" enctype="multipart/form-data" style="display:none;">
+          <input type="file" id="fileInput" name="file" multiple onchange="document.getElementById('uploadForm').submit()">
+        </form>
+      </div>
+      <script>
+      var zone = document.getElementById('uploadZone');
+      zone.addEventListener('dragover', function(e) { e.preventDefault(); zone.classList.add('drag-over'); });
+      zone.addEventListener('dragleave', function() { zone.classList.remove('drag-over'); });
+      zone.addEventListener('drop', function(e) {
+        e.preventDefault(); zone.classList.remove('drag-over');
+        var input = document.getElementById('fileInput');
+        input.files = e.dataTransfer.files;
+        document.getElementById('uploadForm').submit();
+      });
+      </script>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><h2 style="margin:0;">👥 成员</h2></div>
+      <div class="member-list">
+        ${creatorChip}
+        ${memberChips}
+      </div>
+      ${members.length === 0 ? '<p style="font-size:13px;color:var(--text-muted);margin-top:8px;">通过 Agent 工具 <code>context_add_member</code> 添加更多成员</p>' : ""}
+    </div>
+
+    <div class="card">
+      <div class="card-header"><h2 style="margin:0;">🔗 分享 & 集成</h2></div>
+      <div class="meta">
+        <b>AI Agent URL:</b> <code><script>document.write(location.origin)</script>/ctx/${spaceId}/SPACE.md</code><br>
+        <b>浏览器 URL:</b> <code><script>document.write(location.origin)</script>/s/${spaceId}</code>
+      </div>
+
+      <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:var(--radius);padding:14px;margin-top:12px;">
+        <h3 style="margin:0 0 8px;">🤖 让其他 Agent 加入</h3>
+        <pre style="margin:8px 0;background:#0f172a;color:#e2e8f0;padding:10px 14px;border-radius:6px;">clawhub install context-collab</pre>
+        <p style="font-size:12px;color:var(--text-secondary);margin:4px 0 0;">安装后 Agent 自动获取协作上下文。不装插件也能通过 URL 读取文件。</p>
+      </div>
+
+      <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
+        <h3 style="margin:0 0 8px;">🔔 Webhook 通知</h3>
+        <form method="POST" action="/s/${spaceId}/settings" style="display:flex;gap:8px;align-items:center;">
+          <input name="webhookUrl" value="${esc(space.webhookUrl || "")}" placeholder="Webhook URL（Discord / 飞书 / 钉钉）" style="flex:1;">
+          <button type="submit" class="btn">保存</button>
+        </form>
+        ${space.webhookUrl ? '<p style="font-size:12px;color:var(--success);margin:6px 0 0;">✅ 已配置</p>' : '<p style="font-size:12px;color:var(--text-muted);margin:6px 0 0;">⚠️ 未配置 — "发到群"不可用</p>'}
+      </div>
+    </div>
   `);
 }
 
@@ -971,45 +1103,65 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
       `).join("") + "</details>"
     : "";
 
+  // Determine file render mode
+  const isImage = file.mimeType?.startsWith("image/") || filePath.match(/\.(png|jpg|jpeg|gif|svg|webp)$/i);
+  const isMd = filePath.match(/\.(md|markdown)$/i);
+  const isOffice = filePath.match(/\.(doc|docx|xls|xlsx|ppt|pptx|pdf)$/i);
+
+  let contentHtml = "";
+  if (isImage) {
+    contentHtml = `<div class="img-preview"><img src="/ctx/${spaceId}/${filePath}" alt="${esc(filePath)}"><p style="margin-top:8px;font-size:13px;color:var(--text-muted);">${esc(filePath)}</p></div>`;
+  } else if (isOffice) {
+    const ext = filePath.split(".").pop()?.toLowerCase() || "";
+    const icons: Record<string, string> = { doc: "📘", docx: "📘", pdf: "📕", xls: "📗", xlsx: "📗", ppt: "📙", pptx: "📙" };
+    contentHtml = `<div class="office-preview">
+      <div class="icon">${icons[ext] || "📄"}</div>
+      <h3>${esc(filePath)}</h3>
+      <p class="info">此格式暂不支持在线预览</p>
+      <a href="/ctx/${spaceId}/${filePath}" class="btn btn-primary" download>⬇️ 下载文件</a>
+    </div>`;
+  } else if (isMd) {
+    contentHtml = `<div class="card" style="padding:20px 24px;">${mdToHtml(file.content)}</div>
+    <details style="margin-top:12px;"><summary style="cursor:pointer;color:var(--text-secondary);font-size:13px;">📝 查看源码</summary>
+    <table class="code-table">${numberedContent}</table></details>`;
+  } else {
+    contentHtml = `<div style="border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;"><table class="code-table">${numberedContent}</table></div>`;
+  }
+
   return page(`${filePath} — ${space.name}`, `
-    <style>
-      .line-num { color: #656d76; text-align: right; padding-right: 12px; user-select: none; width: 40px; font-size: 12px; vertical-align: top; }
-      .line-content { white-space: pre-wrap; word-break: break-all; font-family: monospace; font-size: 13px; }
-      .code-table { border-collapse: collapse; width: 100%; border: 1px solid #d1d9e0; border-radius: 6px; }
-      .code-table tr:hover { background: #f6f8fa; }
-      .annotation { background: #fff8c5; border: 1px solid #d4a72c; border-radius: 6px; padding: 12px; margin: 8px 0; }
-      .annotation.resolved { background: #f0fff0; border-color: #2da44e; opacity: 0.7; }
-      .ann-header { font-size: 13px; margin-bottom: 4px; color: #656d76; }
-      .ann-content { margin: 8px 0; }
-      .btn-small { font-size: 12px; padding: 3px 8px; border-radius: 4px; border: 1px solid #d1d9e0; background: #f6f8fa; cursor: pointer; }
-      .btn-small:hover { background: #eaeef2; }
-      .add-annotation { background: #f6f8fa; border: 1px solid #d1d9e0; border-radius: 6px; padding: 16px; margin-top: 16px; }
-    </style>
-
-    <div class="breadcrumb"><a href="/s/${spaceId}">← ${esc(space.name)}</a> / ${esc(filePath)}</div>
-    <div class="meta">
-      版本: v${file.version} · 修改: ${esc(file.modifiedBy || "unknown")} · 时间: ${new Date(file.updatedAt).toLocaleString("zh-CN")} · 大小: ${file.size}B
-      ${openAnns.length > 0 ? ` · <b style="color:#d4a72c;">💬 ${openAnns.length} 条批注</b>` : ''}
-    </div>
-    <div class="actions">
-      <a href="/s/${spaceId}/edit/${filePath}">✏️ 编辑</a>
-      <a href="/s/${spaceId}/history/${filePath}">📜 历史</a>
-      <form method="POST" action="/s/${spaceId}/delete/${filePath}" style="display:inline;" onsubmit="return confirm('确定删除 ${esc(filePath)}？')">
-        <button type="submit" class="danger">🗑️ 删除</button>
-      </form>
+    <div class="breadcrumb">
+      <a href="/s/${spaceId}">${esc(space.name)}</a> <span>/</span> <b>${esc(filePath)}</b>
     </div>
 
-    ${file.mimeType.startsWith("image/")
-      ? `<div style="text-align:center;padding:20px;"><img src="/ctx/${spaceId}/${filePath}" style="max-width:100%;border:1px solid #d1d9e0;border-radius:6px;" alt="${esc(filePath)}"></div>`
-      : `<table class="code-table">${numberedContent}</table>`
-    }
+    <div class="card">
+      <div class="card-header">
+        <h1 style="font-size:18px;">${esc(filePath)}</h1>
+        <div style="display:flex;gap:6px;">
+          <a href="/s/${spaceId}/edit/${filePath}" class="btn">✏️ 编辑</a>
+          <a href="/s/${spaceId}/history/${filePath}" class="btn">📜 历史</a>
+          <form method="POST" action="/s/${spaceId}/delete/${filePath}" style="display:inline;" onsubmit="return confirm('确定删除？')">
+            <button type="submit" class="btn btn-danger">🗑️</button>
+          </form>
+        </div>
+      </div>
+      <div class="meta">
+        v${file.version} · ${esc(file.modifiedBy || "unknown")} · ${new Date(file.updatedAt).toLocaleString("zh-CN")} · ${file.size}B
+        ${openAnns.length > 0 ? ` · <b style="color:var(--warning);">💬 ${openAnns.length} 条批注</b>` : ''}
+      </div>
+    </div>
 
-    <h3>💬 批注 (${openAnns.length} 条待处理)</h3>
-    ${annListHtml}
-    ${resolvedHtml}
+    ${contentHtml}
+
+    <div class="card" style="margin-top:20px;">
+      <div class="card-header">
+        <h2 style="margin:0;">💬 批注 (${openAnns.length})</h2>
+      </div>
+      ${annListHtml}
+      ${resolvedHtml}
+    </div>
 
     <div class="add-annotation" id="addAnnotation">
-      <h4>➕ 添加批注 <small style="font-weight:normal;color:#656d76;">(或在代码区框选文字后右键→添加批注)</small></h4>
+      <h3>➕ 添加批注 <small style="font-weight:normal;color:var(--text-muted);">(在代码区框选文字可自动定位行号)</small></h3>
       <p class="selection-hint" id="selectionHint" style="color:#0969da;font-size:13px;display:none;">
         📌 已选中第 <span id="selStartLine">?</span>-<span id="selEndLine">?</span> 行
       </p>
