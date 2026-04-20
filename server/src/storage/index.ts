@@ -261,10 +261,42 @@ export async function deleteFile(spaceId: string, filePath: string): Promise<boo
   const fullPath = path.join(spaceDir(spaceId), "files", filePath);
   if (!(await fs.pathExists(fullPath))) return false;
   await fs.remove(fullPath);
-  // Also remove metadata
   const metaPath = path.join(spaceDir(spaceId), "file-meta", filePath + ".json");
   if (await fs.pathExists(metaPath)) await fs.remove(metaPath);
   return true;
+}
+
+/** Search files by content keyword */
+export async function searchFiles(spaceId: string, query: string): Promise<Array<{ path: string; matches: Array<{ line: number; text: string }> }>> {
+  const dir = path.join(spaceDir(spaceId), "files");
+  if (!(await fs.pathExists(dir))) return [];
+  const results: Array<{ path: string; matches: Array<{ line: number; text: string }> }> = [];
+  const lowerQuery = query.toLowerCase();
+
+  async function walk(currentDir: string, relativePath: string) {
+    const entries = await fs.readdir(currentDir, { withFileTypes: true });
+    for (const entry of entries) {
+      const rel = relativePath ? `${relativePath}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        await walk(path.join(currentDir, entry.name), rel);
+      } else {
+        try {
+          const content = await fs.readFile(path.join(currentDir, entry.name), "utf-8");
+          const lines = content.split("\n");
+          const matches: Array<{ line: number; text: string }> = [];
+          for (let i = 0; i < lines.length; i++) {
+            if (lines[i].toLowerCase().includes(lowerQuery)) {
+              matches.push({ line: i + 1, text: lines[i].trim().slice(0, 200) });
+            }
+          }
+          if (matches.length > 0) results.push({ path: rel, matches });
+        } catch { /* skip binary files */ }
+      }
+    }
+  }
+
+  await walk(dir, "");
+  return results;
 }
 
 // ═══════════════════════════════════════

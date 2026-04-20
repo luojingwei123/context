@@ -92,6 +92,16 @@ router.get("/spaces/:id/files", async (req, res) => {
   catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+/** Search files by content */
+router.get("/spaces/:id/search", async (req, res) => {
+  try {
+    const q = req.query.q as string;
+    if (!q) return res.status(400).json({ error: "q (search query) required" });
+    const results = await storage.searchFiles(req.params.id, q);
+    res.json({ query: q, results, totalMatches: results.reduce((sum, r) => sum + r.matches.length, 0) });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 router.get("/spaces/:id/files/*", async (req, res) => {
   try {
     const filePath = (req.params as any)[0] || req.params["0"];
@@ -401,11 +411,96 @@ router.post("/s/:id/resolve-annotation/:annId", async (req, res) => {
 /** Upload file (multipart form) */
 router.post("/s/:id/upload", async (req, res) => {
   try {
-    // Handle raw text upload (form with path + content)
     const { path: filePath, content, modifiedBy } = req.body;
     if (!filePath) return res.status(400).send("path required");
     await storage.writeFile(req.params.id, filePath, content || "", modifiedBy || "web-user");
     res.redirect(`/s/${req.params.id}`);
+  } catch (err: any) { res.status(500).send(err.message); }
+});
+
+/** Search results page */
+router.get("/s/:id/search", async (req, res) => {
+  try {
+    const q = req.query.q as string;
+    const space = await storage.getSpace(req.params.id);
+    if (!space) return res.status(404).send(notFoundPage("Space not found"));
+    if (!q) return res.redirect(`/s/${req.params.id}`);
+
+    const results = await storage.searchFiles(req.params.id, q);
+    const totalMatches = results.reduce((sum, r) => sum + r.matches.length, 0);
+
+    const resultsHtml = results.map(r => {
+      const matchLines = r.matches.map(m =>
+        `<li><small>第 ${m.line} 行:</small> ${esc(m.text)}</li>`
+      ).join("");
+      return `<div style="margin:12px 0;padding:12px;background:#f6f8fa;border:1px solid #d1d9e0;border-radius:6px;">
+        <b><a href="/s/${req.params.id}/view/${r.path}">${esc(r.path)}</a></b> <small>(${r.matches.length} 处匹配)</small>
+        <ul style="margin-top:8px;">${matchLines}</ul>
+      </div>`;
+    }).join("");
+
+    res.type("text/html").send(page(`搜索: ${q}`, `
+      <div class="breadcrumb"><a href="/s/${req.params.id}">← ${esc(space.name)}</a> / 搜索</div>
+      <h2>🔍 搜索结果: "${esc(q)}"</h2>
+      <p>${results.length} 个文件，${totalMatches} 处匹配</p>
+      ${resultsHtml || "<p>未找到匹配内容。</p>"}
+    `));
+  } catch (err: any) { res.status(500).send(err.message); }
+});
+
+/** All annotations page */
+router.get("/s/:id/annotations", async (req, res) => {
+  try {
+    const space = await storage.getSpace(req.params.id);
+    if (!space) return res.status(404).send(notFoundPage("Space not found"));
+    const annotations = await storage.getAnnotations(req.params.id);
+    const open = annotations.filter(a => a.status === "open");
+    const resolved = annotations.filter(a => a.status === "resolved");
+
+    const openHtml = open.map(a => `
+      <div class="annotation">
+        <div class="ann-header">
+          ${a.authorType === "human" ? "👤" : "🤖"} <b>${esc(a.author)}</b>
+          → <a href="/s/${req.params.id}/view/${a.filePath}">${esc(a.filePath)}</a>
+          ${a.line > 0 ? ` 第 ${a.line}${a.endLine > a.line ? `-${a.endLine}` : ''} 行` : ''}
+          · <small>${new Date(a.createdAt).toLocaleString("zh-CN")}</small>
+        </div>
+        <div class="ann-content">${esc(a.content)}</div>
+        <form method="POST" action="/s/${req.params.id}/resolve-annotation/${a.id}" style="display:inline;">
+          <input type="hidden" name="filePath" value="${esc(a.filePath)}">
+          <button type="submit" class="btn-small">✅ 标记已处理</button>
+        </form>
+      </div>
+    `).join("");
+
+    const resolvedHtml = resolved.length > 0
+      ? `<details><summary>已处理 (${resolved.length})</summary>` +
+        resolved.map(a => `
+          <div class="annotation resolved">
+            <div class="ann-header">
+              ${a.authorType === "human" ? "👤" : "🤖"} <b>${esc(a.author)}</b>
+              → <a href="/s/${req.params.id}/view/${a.filePath}">${esc(a.filePath)}</a>
+              · ✅ ${esc(a.resolvedBy || "")}
+            </div>
+            <div class="ann-content">${esc(a.content)}</div>
+          </div>
+        `).join("") + "</details>"
+      : "";
+
+    res.type("text/html").send(page("批注清单", `
+      <style>
+        .annotation { background: #fff8c5; border: 1px solid #d4a72c; border-radius: 6px; padding: 12px; margin: 8px 0; }
+        .annotation.resolved { background: #f0fff0; border-color: #2da44e; opacity: 0.7; }
+        .ann-header { font-size: 13px; margin-bottom: 4px; color: #656d76; }
+        .ann-content { margin: 8px 0; }
+        .btn-small { font-size: 12px; padding: 3px 8px; border-radius: 4px; border: 1px solid #d1d9e0; background: #f6f8fa; cursor: pointer; }
+      </style>
+      <div class="breadcrumb"><a href="/s/${req.params.id}">← ${esc(space.name)}</a> / 批注清单</div>
+      <h2>💬 批注清单</h2>
+      <p>待处理: ${open.length} · 已处理: ${resolved.length}</p>
+      ${openHtml || "<p>暂无待处理批注 🎉</p>"}
+      ${resolvedHtml}
+    `));
   } catch (err: any) { res.status(500).send(err.message); }
 });
 
@@ -466,12 +561,15 @@ function notFoundPage(msg: string): string {
 async function renderSpacePage(spaceId: string, space: any): Promise<string> {
   const files = await storage.listFiles(spaceId);
   const members = await storage.getMembers(spaceId);
+  const allAnnotations = await storage.getAnnotations(spaceId, undefined, "open");
 
   const fileItems = files.map((f: any) => {
-    const icon = f.path.endsWith(".md") ? "📝" : "📄";
+    const icon = f.path.endsWith(".md") ? "📝" : f.path.match(/\.(png|jpg|jpeg|gif|svg)$/i) ? "🖼️" : "📄";
     const size = f.size < 1024 ? `${f.size}B` : `${(f.size / 1024).toFixed(1)}KB`;
+    const fileAnns = allAnnotations.filter((a: any) => a.filePath === f.path);
+    const annBadge = fileAnns.length > 0 ? ` <span style="background:#d4a72c;color:#fff;padding:1px 6px;border-radius:10px;font-size:11px;">💬${fileAnns.length}</span>` : "";
     return `<li>
-      <div class="file-info">${icon} <a href="/s/${spaceId}/view/${f.path}">${esc(f.path)}</a></div>
+      <div class="file-info">${icon} <a href="/s/${spaceId}/view/${f.path}">${esc(f.path)}</a>${annBadge}</div>
       <div class="file-meta">${size} · v${f.version} · ${f.modifiedBy || ""}</div>
     </li>`;
   }).join("");
@@ -486,9 +584,16 @@ async function renderSpacePage(spaceId: string, space: any): Promise<string> {
       <b>Space ID:</b> <code>${spaceId}</code> · <b>Channel:</b> ${esc(space.channel)} · <b>创建:</b> ${new Date(space.createdAt).toLocaleDateString("zh-CN")}
     </div>
 
+    <h2>🔍 搜索</h2>
+    <form method="GET" action="/s/${spaceId}/search" style="margin-bottom:20px;">
+      <input name="q" placeholder="搜索文件内容..." style="width:300px;">
+      <button type="submit">搜索</button>
+    </form>
+
     <h2>📄 文件 (${files.length})</h2>
     <div class="actions">
       <a href="/s/${spaceId}/new" class="primary">➕ 新建文件</a>
+      ${allAnnotations.length > 0 ? `<a href="/s/${spaceId}/annotations">💬 全部批注 (${allAnnotations.length})</a>` : ""}
     </div>
     <ul class="file-list">${fileItems || "<li>暂无文件</li>"}</ul>
 

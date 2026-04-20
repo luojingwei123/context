@@ -360,6 +360,25 @@ export default definePluginEntry({
       },
     });
 
+    api.registerTool({
+      name: "context_search_files",
+      label: "Search Context Files",
+      description: "Search for text across all files in the shared Context space. Returns matching files and line numbers.",
+      parameters: {
+        type: "object",
+        properties: {
+          space_id: { type: "string", description: "Space ID" },
+          query: { type: "string", description: "Search query text" },
+        },
+        required: ["space_id", "query"],
+      },
+      execute: async (_id: string, params: any) => {
+        const { space_id, query } = params;
+        const data = await ctxFetch(serverUrl, "GET", `/api/spaces/${space_id}/search?q=${encodeURIComponent(query)}`);
+        return jsonResult(data);
+      },
+    });
+
     // ═══════════════════════════════════════
     // 3. HTTP ROUTES
     // ═══════════════════════════════════════
@@ -554,7 +573,7 @@ export default definePluginEntry({
       logger.info("[context] Agent bootstrap — injected Context rules into AGENTS.md");
     }, { name: "context-bootstrap" });
 
-    logger.info("[context] ✅ Plugin v1.1.0 registered (12 tools, prompt hook, HTTP routes, 5 commands)");
+    logger.info("[context] ✅ Plugin v1.1.0 registered (13 tools, prompt hook, HTTP routes, 5 commands)");
   },
 });
 
