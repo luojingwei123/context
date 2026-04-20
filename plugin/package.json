@@ -1,0 +1,14 @@
+{
+  "name": "context-plugin",
+  "version": "0.1.0",
+  "description": "Context — Multi-agent collaboration plugin for OpenClaw",
+  "type": "module",
+  "main": "index.ts",
+  "openclaw": {
+    "extensions": ["./index.ts"]
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "openclaw": ">=2026.3.0"
+  }
+}
