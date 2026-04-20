@@ -98,7 +98,9 @@ router.get("/spaces/:id/files/*", async (req, res) => {
     if (!filePath) return res.status(400).json({ error: "File path required" });
     const file = await storage.getFile(req.params.id, filePath);
     if (!file) return res.status(404).json({ error: "File not found" });
-    res.json({ file });
+    // Include open annotations so AI can see human feedback
+    const annotations = await storage.getAnnotations(req.params.id, filePath, "open");
+    res.json({ file, annotations: annotations.length > 0 ? annotations : undefined });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
@@ -132,6 +134,49 @@ router.get("/spaces/:id/protocol", async (req, res) => {
       storage.getFile(req.params.id, "TASK.md"),
     ]);
     res.json({ space: s?.content || "", team: t?.content || "", task: k?.content || "" });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── Annotations API ───
+
+/** List annotations for a file (or all in space) */
+router.get("/spaces/:id/annotations", async (req, res) => {
+  try {
+    const filePath = req.query.file as string | undefined;
+    const status = req.query.status as string | undefined;
+    const anns = await storage.getAnnotations(req.params.id, filePath, status);
+    res.json({ annotations: anns });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+/** Add annotation */
+router.post("/spaces/:id/annotations", async (req, res) => {
+  try {
+    const { filePath, line, endLine, content, author, authorType } = req.body;
+    if (!filePath || !content || !author) return res.status(400).json({ error: "filePath, content, author required" });
+    const ann = await storage.addAnnotation(req.params.id, {
+      filePath, line: line || 0, endLine: endLine || 0, content, author, authorType: authorType || "human",
+    });
+    res.status(201).json({ annotation: ann });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+/** Resolve annotation */
+router.put("/spaces/:id/annotations/:annId/resolve", async (req, res) => {
+  try {
+    const { resolvedBy } = req.body;
+    const ann = await storage.resolveAnnotation(req.params.id, req.params.annId, resolvedBy || "unknown");
+    if (!ann) return res.status(404).json({ error: "Annotation not found" });
+    res.json({ annotation: ann });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+/** Delete annotation */
+router.delete("/spaces/:id/annotations/:annId", async (req, res) => {
+  try {
+    const deleted = await storage.deleteAnnotation(req.params.id, req.params.annId);
+    if (!deleted) return res.status(404).json({ error: "Annotation not found" });
+    res.json({ success: true });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
@@ -176,8 +221,9 @@ router.get("/ctx/:spaceId/*", async (req, res) => {
     if (!file) return res.status(404).send(wantsHtml ? notFoundPage(`File not found: ${filePath}`) : "File not found");
 
     if (wantsHtml) {
-      // Human browser → rendered page with edit button
-      return res.type("text/html").send(renderFilePage(space, file, spaceId, filePath));
+      // Human browser → rendered page with annotations
+      const annotations = await storage.getAnnotations(spaceId, filePath);
+      return res.type("text/html").send(renderFilePage(space, file, spaceId, filePath, annotations));
     }
 
     if (hasPlugin) {
@@ -255,7 +301,8 @@ router.get("/s/:id/view/*", async (req, res) => {
     if (!space) return res.status(404).send(notFoundPage("Space not found"));
     const file = await storage.getFile(req.params.id, filePath);
     if (!file) return res.status(404).send(notFoundPage(`File not found: ${filePath}`));
-    res.type("text/html").send(renderFilePage(space, file, req.params.id, filePath));
+    const annotations = await storage.getAnnotations(req.params.id, filePath);
+    res.type("text/html").send(renderFilePage(space, file, req.params.id, filePath, annotations));
   } catch (err: any) { res.status(500).send(err.message); }
 });
 
@@ -322,6 +369,32 @@ router.post("/s/:id/delete/*", async (req, res) => {
     const filePath = (req.params as any)[0] || req.params["0"];
     await storage.deleteFile(req.params.id, filePath);
     res.redirect(`/s/${req.params.id}`);
+  } catch (err: any) { res.status(500).send(err.message); }
+});
+
+/** Add annotation (form POST) */
+router.post("/s/:id/annotate", async (req, res) => {
+  try {
+    const { filePath, line, endLine, content, author } = req.body;
+    if (!filePath || !content) return res.status(400).send("filePath and content required");
+    await storage.addAnnotation(req.params.id, {
+      filePath,
+      line: parseInt(line) || 0,
+      endLine: parseInt(endLine) || 0,
+      content,
+      author: author || "web-user",
+      authorType: "human",
+    });
+    res.redirect(`/s/${req.params.id}/view/${filePath}`);
+  } catch (err: any) { res.status(500).send(err.message); }
+});
+
+/** Resolve annotation (form POST) */
+router.post("/s/:id/resolve-annotation/:annId", async (req, res) => {
+  try {
+    const { filePath } = req.body;
+    await storage.resolveAnnotation(req.params.id, req.params.annId, "web-user");
+    res.redirect(`/s/${req.params.id}/view/${filePath || ""}`);
   } catch (err: any) { res.status(500).send(err.message); }
 });
 
@@ -432,15 +505,70 @@ async function renderSpacePage(spaceId: string, space: any): Promise<string> {
   `);
 }
 
-function renderFilePage(space: any, file: any, spaceId: string, filePath: string): string {
-  const contentHtml = file.mimeType === "text/markdown"
-    ? mdToHtml(file.content)
-    : `<pre>${esc(file.content)}</pre>`;
+function renderFilePage(space: any, file: any, spaceId: string, filePath: string, annotations?: any[]): string {
+  const openAnns = (annotations || []).filter((a: any) => a.status === "open");
+  const resolvedAnns = (annotations || []).filter((a: any) => a.status === "resolved");
+
+  // Render content with line numbers for annotation reference
+  const lines = file.content.split("\n");
+  const numberedContent = lines.map((line: string, i: number) => {
+    const lineNum = i + 1;
+    const lineAnns = openAnns.filter((a: any) => a.line === lineNum || (a.line <= lineNum && a.endLine >= lineNum));
+    const highlight = lineAnns.length > 0 ? ' style="background:#fff8c5;border-left:3px solid #d4a72c;padding-left:8px;"' : '';
+    return `<tr${highlight}><td class="line-num">${lineNum}</td><td class="line-content">${esc(line) || '&nbsp;'}</td></tr>`;
+  }).join("\n");
+
+  // Annotation list
+  const annListHtml = openAnns.length > 0
+    ? openAnns.map((a: any) => `
+      <div class="annotation">
+        <div class="ann-header">
+          ${a.authorType === "human" ? "👤" : "🤖"} <b>${esc(a.author)}</b>
+          ${a.line > 0 ? `· 第 ${a.line}${a.endLine > a.line ? `-${a.endLine}` : ''} 行` : '· 全文'}
+          · <small>${new Date(a.createdAt).toLocaleString("zh-CN")}</small>
+        </div>
+        <div class="ann-content">${esc(a.content)}</div>
+        <form method="POST" action="/s/${spaceId}/resolve-annotation/${a.id}" style="display:inline;">
+          <input type="hidden" name="filePath" value="${esc(filePath)}">
+          <button type="submit" class="btn-small">✅ 标记已处理</button>
+        </form>
+      </div>
+    `).join("")
+    : "<p>暂无批注</p>";
+
+  const resolvedHtml = resolvedAnns.length > 0
+    ? `<details><summary>已处理的批注 (${resolvedAnns.length})</summary>` +
+      resolvedAnns.map((a: any) => `
+        <div class="annotation resolved">
+          <div class="ann-header">
+            ${a.authorType === "human" ? "👤" : "🤖"} <b>${esc(a.author)}</b>
+            · ${a.line > 0 ? `第 ${a.line} 行` : '全文'}
+            · ✅ ${esc(a.resolvedBy || "")} 已处理
+          </div>
+          <div class="ann-content">${esc(a.content)}</div>
+        </div>
+      `).join("") + "</details>"
+    : "";
 
   return page(`${filePath} — ${space.name}`, `
+    <style>
+      .line-num { color: #656d76; text-align: right; padding-right: 12px; user-select: none; width: 40px; font-size: 12px; vertical-align: top; }
+      .line-content { white-space: pre-wrap; word-break: break-all; font-family: monospace; font-size: 13px; }
+      .code-table { border-collapse: collapse; width: 100%; border: 1px solid #d1d9e0; border-radius: 6px; }
+      .code-table tr:hover { background: #f6f8fa; }
+      .annotation { background: #fff8c5; border: 1px solid #d4a72c; border-radius: 6px; padding: 12px; margin: 8px 0; }
+      .annotation.resolved { background: #f0fff0; border-color: #2da44e; opacity: 0.7; }
+      .ann-header { font-size: 13px; margin-bottom: 4px; color: #656d76; }
+      .ann-content { margin: 8px 0; }
+      .btn-small { font-size: 12px; padding: 3px 8px; border-radius: 4px; border: 1px solid #d1d9e0; background: #f6f8fa; cursor: pointer; }
+      .btn-small:hover { background: #eaeef2; }
+      .add-annotation { background: #f6f8fa; border: 1px solid #d1d9e0; border-radius: 6px; padding: 16px; margin-top: 16px; }
+    </style>
+
     <div class="breadcrumb"><a href="/s/${spaceId}">← ${esc(space.name)}</a> / ${esc(filePath)}</div>
     <div class="meta">
       版本: v${file.version} · 修改: ${esc(file.modifiedBy || "unknown")} · 时间: ${new Date(file.updatedAt).toLocaleString("zh-CN")} · 大小: ${file.size}B
+      ${openAnns.length > 0 ? ` · <b style="color:#d4a72c;">💬 ${openAnns.length} 条批注</b>` : ''}
     </div>
     <div class="actions">
       <a href="/s/${spaceId}/edit/${filePath}">✏️ 编辑</a>
@@ -448,7 +576,25 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
         <button type="submit" class="danger">🗑️ 删除</button>
       </form>
     </div>
-    <div class="content">${contentHtml}</div>
+
+    <table class="code-table">${numberedContent}</table>
+
+    <h3>💬 批注 (${openAnns.length} 条待处理)</h3>
+    ${annListHtml}
+    ${resolvedHtml}
+
+    <div class="add-annotation">
+      <h4>➕ 添加批注</h4>
+      <form method="POST" action="/s/${spaceId}/annotate">
+        <input type="hidden" name="filePath" value="${esc(filePath)}">
+        <label>行号: <input name="line" type="number" min="0" max="${lines.length}" value="0" style="width:60px;"> </label>
+        <label>到: <input name="endLine" type="number" min="0" max="${lines.length}" value="0" style="width:60px;"></label>
+        <small>(0 = 全文批注)</small><br><br>
+        <textarea name="content" style="width:100%;height:80px;" placeholder="写下你的批注/修改意见..." required></textarea><br>
+        <label>批注人: <input name="author" value=""></label>
+        <button type="submit" style="margin-left:10px;">💬 提交批注</button>
+      </form>
+    </div>
   `);
 }
 

@@ -75,3 +75,28 @@ export interface SpaceLookupQuery {
   groupId: string;
   channelId?: string;
 }
+
+/** An annotation/comment on a file */
+export interface Annotation {
+  id: string;
+  spaceId: string;
+  /** File path this annotation belongs to */
+  filePath: string;
+  /** Line number (1-based, 0 = whole file) */
+  line: number;
+  /** End line for range selection (0 = single line) */
+  endLine: number;
+  /** Comment content */
+  content: string;
+  /** Who created the annotation */
+  author: string;
+  /** Author type */
+  authorType: "human" | "agent";
+  /** Status: open = needs attention, resolved = done */
+  status: "open" | "resolved";
+  /** Who resolved it */
+  resolvedBy?: string;
+  resolvedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}

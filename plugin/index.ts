@@ -317,6 +317,49 @@ export default definePluginEntry({
       },
     });
 
+    api.registerTool({
+      name: "context_get_annotations",
+      label: "Get Annotations",
+      description: "Get annotations (human comments/feedback) on a file. Use this to see what humans want changed. Only returns 'open' annotations by default.",
+      parameters: {
+        type: "object",
+        properties: {
+          space_id: { type: "string", description: "Space ID" },
+          file_path: { type: "string", description: "File path to get annotations for (optional, omit for all files)" },
+          status: { type: "string", enum: ["open", "resolved", "all"], description: "Filter by status (default: open)" },
+        },
+        required: ["space_id"],
+      },
+      execute: async (_id: string, params: any) => {
+        const { space_id, file_path, status } = params;
+        let q = "?";
+        if (file_path) q += `file=${encodeURIComponent(file_path)}&`;
+        if (status && status !== "all") q += `status=${encodeURIComponent(status)}`;
+        const data = await ctxFetch(serverUrl, "GET", `/api/spaces/${space_id}/annotations${q}`);
+        return jsonResult({ annotations: data.annotations });
+      },
+    });
+
+    api.registerTool({
+      name: "context_resolve_annotation",
+      label: "Resolve Annotation",
+      description: "Mark an annotation as resolved after addressing the feedback. Call this after you've made the requested changes.",
+      parameters: {
+        type: "object",
+        properties: {
+          space_id: { type: "string", description: "Space ID" },
+          annotation_id: { type: "string", description: "Annotation ID to resolve" },
+          resolved_by: { type: "string", description: "Who resolved it (your name/ID)" },
+        },
+        required: ["space_id", "annotation_id", "resolved_by"],
+      },
+      execute: async (_id: string, params: any) => {
+        const { space_id, annotation_id, resolved_by } = params;
+        const data = await ctxFetch(serverUrl, "PUT", `/api/spaces/${space_id}/annotations/${annotation_id}/resolve`, { resolvedBy: resolved_by });
+        return jsonResult({ success: true, annotation: data.annotation });
+      },
+    });
+
     // ═══════════════════════════════════════
     // 3. HTTP ROUTES
     // ═══════════════════════════════════════
@@ -511,7 +554,7 @@ export default definePluginEntry({
       logger.info("[context] Agent bootstrap — injected Context rules into AGENTS.md");
     }, { name: "context-bootstrap" });
 
-    logger.info("[context] ✅ Plugin v0.5.0 registered (10 tools, prompt hook, HTTP routes, 5 commands)");
+    logger.info("[context] ✅ Plugin v1.1.0 registered (12 tools, prompt hook, HTTP routes, 5 commands)");
   },
 });
 

@@ -8,7 +8,7 @@
 import fs from "fs-extra";
 import path from "path";
 import { nanoid } from "nanoid";
-import type { Space, SpaceMember, SpaceFile, CreateSpaceRequest, SpaceLookupQuery } from "../types.js";
+import type { Space, SpaceMember, SpaceFile, CreateSpaceRequest, SpaceLookupQuery, Annotation } from "../types.js";
 
 const DATA_DIR = process.env.CONTEXT_DATA_DIR || path.join(process.cwd(), "data");
 
@@ -287,4 +287,79 @@ function guessMimeType(filePath: string): string {
     ".jpeg": "image/jpeg",
   };
   return map[ext] || "application/octet-stream";
+}
+
+// ═══════════════════════════════════════
+// Annotations
+// ═══════════════════════════════════════
+
+function annotationsPath(spaceId: string): string {
+  return path.join(spaceDir(spaceId), "annotations.json");
+}
+
+/** Get all annotations for a space */
+export async function getAnnotations(spaceId: string, filePath?: string, status?: string): Promise<Annotation[]> {
+  const p = annotationsPath(spaceId);
+  if (!(await fs.pathExists(p))) return [];
+  const all: Annotation[] = await fs.readJson(p);
+  let result = all;
+  if (filePath) result = result.filter(a => a.filePath === filePath);
+  if (status) result = result.filter(a => a.status === status);
+  return result;
+}
+
+/** Add an annotation */
+export async function addAnnotation(spaceId: string, ann: {
+  filePath: string;
+  line: number;
+  endLine?: number;
+  content: string;
+  author: string;
+  authorType: "human" | "agent";
+}): Promise<Annotation> {
+  const p = annotationsPath(spaceId);
+  const all: Annotation[] = (await fs.pathExists(p)) ? await fs.readJson(p) : [];
+  const now = new Date().toISOString();
+  const newAnn: Annotation = {
+    id: nanoid(8),
+    spaceId,
+    filePath: ann.filePath,
+    line: ann.line || 0,
+    endLine: ann.endLine || 0,
+    content: ann.content,
+    author: ann.author,
+    authorType: ann.authorType,
+    status: "open",
+    createdAt: now,
+    updatedAt: now,
+  };
+  all.push(newAnn);
+  await fs.writeJson(p, all, { spaces: 2 });
+  return newAnn;
+}
+
+/** Resolve an annotation */
+export async function resolveAnnotation(spaceId: string, annotationId: string, resolvedBy: string): Promise<Annotation | null> {
+  const p = annotationsPath(spaceId);
+  if (!(await fs.pathExists(p))) return null;
+  const all: Annotation[] = await fs.readJson(p);
+  const ann = all.find(a => a.id === annotationId);
+  if (!ann) return null;
+  ann.status = "resolved";
+  ann.resolvedBy = resolvedBy;
+  ann.resolvedAt = new Date().toISOString();
+  ann.updatedAt = ann.resolvedAt;
+  await fs.writeJson(p, all, { spaces: 2 });
+  return ann;
+}
+
+/** Delete an annotation */
+export async function deleteAnnotation(spaceId: string, annotationId: string): Promise<boolean> {
+  const p = annotationsPath(spaceId);
+  if (!(await fs.pathExists(p))) return false;
+  const all: Annotation[] = await fs.readJson(p);
+  const filtered = all.filter(a => a.id !== annotationId);
+  if (filtered.length === all.length) return false;
+  await fs.writeJson(p, filtered, { spaces: 2 });
+  return true;
 }
