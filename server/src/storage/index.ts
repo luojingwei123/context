@@ -176,9 +176,28 @@ export async function writeFile(
 ): Promise<SpaceFile> {
   const dir = path.join(spaceDir(spaceId), "files");
   const metaDir = path.join(spaceDir(spaceId), "file-meta");
+  const historyDir = path.join(spaceDir(spaceId), "file-history");
 
   const fullPath = path.join(dir, filePath);
   await fs.ensureDir(path.dirname(fullPath));
+
+  // Save current version to history before overwrite
+  if (await fs.pathExists(fullPath)) {
+    const metaPath = path.join(metaDir, filePath + ".json");
+    let oldMeta: any = {};
+    if (await fs.pathExists(metaPath)) oldMeta = await fs.readJson(metaPath);
+    const version = oldMeta.version || 1;
+    const histPath = path.join(historyDir, filePath);
+    await fs.ensureDir(histPath);
+    const oldContent = await fs.readFile(fullPath, "utf-8");
+    await fs.writeJson(path.join(histPath, `v${version}.json`), {
+      version,
+      content: oldContent,
+      modifiedBy: oldMeta.modifiedBy || "unknown",
+      savedAt: oldMeta.updatedAt || new Date().toISOString(),
+    }, { spaces: 2 });
+  }
+
   await fs.writeFile(fullPath, content, "utf-8");
 
   // Update metadata
@@ -214,6 +233,26 @@ export async function writeFile(
     createdAt: meta.createdAt,
     updatedAt: meta.updatedAt,
   };
+}
+
+/** Get file version history */
+export async function getFileHistory(spaceId: string, filePath: string): Promise<Array<{ version: number; modifiedBy: string; savedAt: string; size: number }>> {
+  const histPath = path.join(spaceDir(spaceId), "file-history", filePath);
+  if (!(await fs.pathExists(histPath))) return [];
+  const entries = await fs.readdir(histPath);
+  const versions: Array<{ version: number; modifiedBy: string; savedAt: string; size: number }> = [];
+  for (const entry of entries.filter(e => e.endsWith(".json"))) {
+    const data = await fs.readJson(path.join(histPath, entry));
+    versions.push({ version: data.version, modifiedBy: data.modifiedBy, savedAt: data.savedAt, size: (data.content || "").length });
+  }
+  return versions.sort((a, b) => b.version - a.version);
+}
+
+/** Get a specific version's content */
+export async function getFileVersion(spaceId: string, filePath: string, version: number): Promise<{ version: number; content: string; modifiedBy: string; savedAt: string } | null> {
+  const versionPath = path.join(spaceDir(spaceId), "file-history", filePath, `v${version}.json`);
+  if (!(await fs.pathExists(versionPath))) return null;
+  return fs.readJson(versionPath);
 }
 
 /** List files in a space */

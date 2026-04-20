@@ -190,6 +190,51 @@ router.delete("/spaces/:id/annotations/:annId", async (req, res) => {
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+// ─── File History API ───
+
+/** Get file version history */
+router.get("/spaces/:id/history/*", async (req, res) => {
+  try {
+    const filePath = (req.params as any)[0] || req.params["0"];
+    if (!filePath) return res.status(400).json({ error: "File path required" });
+    const history = await storage.getFileHistory(req.params.id, filePath);
+    res.json({ filePath, history });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+/** Get specific version content */
+router.get("/spaces/:id/version/:version/*", async (req, res) => {
+  try {
+    const filePath = (req.params as any)[0] || req.params["0"];
+    const version = parseInt(req.params.version);
+    if (!filePath || isNaN(version)) return res.status(400).json({ error: "File path and version required" });
+    const data = await storage.getFileVersion(req.params.id, filePath, version);
+    if (!data) return res.status(404).json({ error: "Version not found" });
+    res.json(data);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+/** Convert annotation to task (append to TASK.md) */
+router.post("/spaces/:id/annotations/:annId/to-task", async (req, res) => {
+  try {
+    const ann = (await storage.getAnnotations(req.params.id)).find(a => a.id === req.params.annId);
+    if (!ann) return res.status(404).json({ error: "Annotation not found" });
+
+    // Read current TASK.md
+    const taskFile = await storage.getFile(req.params.id, "TASK.md");
+    const taskContent = taskFile?.content || "# 任务\n\n## 当前任务\n";
+
+    // Append new task from annotation
+    const newTask = `\n### [ready] ${ann.content.slice(0, 60)}\n- **来源:** 批注 (${ann.filePath}${ann.line > 0 ? ` 第${ann.line}行` : ""})\n- **批注人:** ${ann.author}\n- **负责人:** 待认领\n- **说明:** ${ann.content}\n`;
+
+    await storage.writeFile(req.params.id, "TASK.md", taskContent + newTask, "system");
+    // Resolve the annotation
+    await storage.resolveAnnotation(req.params.id, ann.id, "system(转为任务)");
+
+    res.json({ success: true, message: "Annotation converted to task" });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 
 // ════════════════════════════════════════════════════════════════
 // /ctx/* — 智能分流（裂变传播入口）
@@ -408,6 +453,23 @@ router.post("/s/:id/resolve-annotation/:annId", async (req, res) => {
   } catch (err: any) { res.status(500).send(err.message); }
 });
 
+/** Convert annotation to task (form POST) */
+router.post("/s/:id/annotation-to-task/:annId", async (req, res) => {
+  try {
+    const { filePath } = req.body;
+    const ann = (await storage.getAnnotations(req.params.id)).find(a => a.id === req.params.annId);
+    if (!ann) return res.redirect(`/s/${req.params.id}`);
+
+    const taskFile = await storage.getFile(req.params.id, "TASK.md");
+    const taskContent = taskFile?.content || "# 任务\n\n## 当前任务\n";
+    const newTask = `\n### [ready] ${ann.content.slice(0, 60)}\n- **来源:** 批注 (${ann.filePath}${ann.line > 0 ? ` 第${ann.line}行` : ""})\n- **批注人:** ${ann.author}\n- **负责人:** 待认领\n- **说明:** ${ann.content}\n`;
+    await storage.writeFile(req.params.id, "TASK.md", taskContent + newTask, "system");
+    await storage.resolveAnnotation(req.params.id, ann.id, "system(转为任务)");
+
+    res.redirect(`/s/${req.params.id}/view/${filePath || "TASK.md"}`);
+  } catch (err: any) { res.status(500).send(err.message); }
+});
+
 /** Upload file (multipart form) */
 router.post("/s/:id/upload", async (req, res) => {
   try {
@@ -470,6 +532,10 @@ router.get("/s/:id/annotations", async (req, res) => {
           <input type="hidden" name="filePath" value="${esc(a.filePath)}">
           <button type="submit" class="btn-small">✅ 标记已处理</button>
         </form>
+        <form method="POST" action="/s/${req.params.id}/annotation-to-task/${a.id}" style="display:inline;margin-left:4px;">
+          <input type="hidden" name="filePath" value="${esc(a.filePath)}">
+          <button type="submit" class="btn-small">📋 转为任务</button>
+        </form>
       </div>
     `).join("");
 
@@ -500,6 +566,61 @@ router.get("/s/:id/annotations", async (req, res) => {
       <p>待处理: ${open.length} · 已处理: ${resolved.length}</p>
       ${openHtml || "<p>暂无待处理批注 🎉</p>"}
       ${resolvedHtml}
+    `));
+  } catch (err: any) { res.status(500).send(err.message); }
+});
+
+/** File version history page */
+router.get("/s/:id/history/*", async (req, res) => {
+  try {
+    const filePath = (req.params as any)[0] || req.params["0"];
+    const space = await storage.getSpace(req.params.id);
+    if (!space) return res.status(404).send(notFoundPage("Space not found"));
+    const history = await storage.getFileHistory(req.params.id, filePath);
+    const currentFile = await storage.getFile(req.params.id, filePath);
+
+    const historyHtml = history.length > 0
+      ? history.map(h => `
+        <tr>
+          <td>v${h.version}</td>
+          <td>${esc(h.modifiedBy)}</td>
+          <td>${new Date(h.savedAt).toLocaleString("zh-CN")}</td>
+          <td>${h.size}B</td>
+          <td><a href="/s/${req.params.id}/version/${h.version}/${filePath}">查看</a></td>
+        </tr>
+      `).join("")
+      : "<tr><td colspan='5'>暂无历史版本</td></tr>";
+
+    res.type("text/html").send(page(`历史 — ${filePath}`, `
+      <div class="breadcrumb"><a href="/s/${req.params.id}">← ${esc(space.name)}</a> / <a href="/s/${req.params.id}/view/${filePath}">${esc(filePath)}</a> / 版本历史</div>
+      <h2>📜 版本历史: ${esc(filePath)}</h2>
+      <p>当前版本: v${currentFile?.version || '?'}</p>
+      <table>
+        <tr><th>版本</th><th>修改人</th><th>时间</th><th>大小</th><th>操作</th></tr>
+        ${historyHtml}
+      </table>
+    `));
+  } catch (err: any) { res.status(500).send(err.message); }
+});
+
+/** View specific version */
+router.get("/s/:id/version/:version/*", async (req, res) => {
+  try {
+    const filePath = (req.params as any)[0] || req.params["0"];
+    const version = parseInt(req.params.version);
+    const space = await storage.getSpace(req.params.id);
+    if (!space) return res.status(404).send(notFoundPage("Space not found"));
+    const data = await storage.getFileVersion(req.params.id, filePath, version);
+    if (!data) return res.status(404).send(notFoundPage(`Version v${version} not found`));
+
+    res.type("text/html").send(page(`v${version} — ${filePath}`, `
+      <div class="breadcrumb">
+        <a href="/s/${req.params.id}">← ${esc(space.name)}</a> /
+        <a href="/s/${req.params.id}/view/${filePath}">${esc(filePath)}</a> /
+        <a href="/s/${req.params.id}/history/${filePath}">历史</a> / v${version}
+      </div>
+      <div class="meta">版本: v${version} · 修改: ${esc(data.modifiedBy)} · 时间: ${new Date(data.savedAt).toLocaleString("zh-CN")} · 大小: ${data.content.length}B</div>
+      <pre style="white-space:pre-wrap;">${esc(data.content)}</pre>
     `));
   } catch (err: any) { res.status(500).send(err.message); }
 });
@@ -637,6 +758,10 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
           <input type="hidden" name="filePath" value="${esc(filePath)}">
           <button type="submit" class="btn-small">✅ 标记已处理</button>
         </form>
+        <form method="POST" action="/s/${spaceId}/annotation-to-task/${a.id}" style="display:inline;margin-left:4px;">
+          <input type="hidden" name="filePath" value="${esc(filePath)}">
+          <button type="submit" class="btn-small">📋 转为任务</button>
+        </form>
       </div>
     `).join("")
     : "<p>暂无批注</p>";
@@ -677,6 +802,7 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
     </div>
     <div class="actions">
       <a href="/s/${spaceId}/edit/${filePath}">✏️ 编辑</a>
+      <a href="/s/${spaceId}/history/${filePath}">📜 历史</a>
       <form method="POST" action="/s/${spaceId}/delete/${filePath}" style="display:inline;" onsubmit="return confirm('确定删除 ${esc(filePath)}？')">
         <button type="submit" class="danger">🗑️ 删除</button>
       </form>
@@ -690,16 +816,131 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
 
     <div class="add-annotation">
       <h4>➕ 添加批注</h4>
-      <form method="POST" action="/s/${spaceId}/annotate">
+      <p class="selection-hint" id="selectionHint" style="color:#0969da;font-size:13px;display:none;">
+        📌 已选中第 <span id="selStartLine">?</span>-<span id="selEndLine">?</span> 行
+      </p>
+      <form method="POST" action="/s/${spaceId}/annotate" id="annotateForm">
         <input type="hidden" name="filePath" value="${esc(filePath)}">
-        <label>行号: <input name="line" type="number" min="0" max="${lines.length}" value="0" style="width:60px;"> </label>
-        <label>到: <input name="endLine" type="number" min="0" max="${lines.length}" value="0" style="width:60px;"></label>
-        <small>(0 = 全文批注)</small><br><br>
-        <textarea name="content" style="width:100%;height:80px;" placeholder="写下你的批注/修改意见..." required></textarea><br>
+        <label>行号: <input name="line" id="annLine" type="number" min="0" max="${lines.length}" value="0" style="width:60px;"> </label>
+        <label>到: <input name="endLine" id="annEndLine" type="number" min="0" max="${lines.length}" value="0" style="width:60px;"></label>
+        <small>(0 = 全文批注，或在上方代码区域框选文字自动定位)</small><br><br>
+        <textarea name="content" id="annContent" style="width:100%;height:80px;" placeholder="写下你的批注/修改意见..." required></textarea><br>
         <label>批注人: <input name="author" value=""></label>
         <button type="submit" style="margin-left:10px;">💬 提交批注</button>
       </form>
     </div>
+
+    <script>
+    const SPACE_ID = '${spaceId}';
+    const FILE_PATH = '${filePath.replace(/'/g, "\\'")}';
+    const CTX_URL = 'http://localhost:3100/ctx/${spaceId}/${filePath}';
+
+    // 框选代码行自动定位行号
+    document.querySelector('.code-table').addEventListener('mouseup', function() {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed) return;
+
+      let startNode = sel.anchorNode;
+      let endNode = sel.focusNode;
+
+      function findRow(node) {
+        while (node && node.tagName !== 'TR') node = node.parentElement;
+        return node;
+      }
+
+      const startRow = findRow(startNode);
+      const endRow = findRow(endNode);
+      if (!startRow || !endRow) return;
+
+      const rows = Array.from(document.querySelectorAll('.code-table tr'));
+      let startIdx = rows.indexOf(startRow) + 1;
+      let endIdx = rows.indexOf(endRow) + 1;
+      if (startIdx > endIdx) [startIdx, endIdx] = [endIdx, startIdx];
+
+      document.getElementById('annLine').value = startIdx;
+      document.getElementById('annEndLine').value = endIdx;
+      document.getElementById('selStartLine').textContent = startIdx;
+      document.getElementById('selEndLine').textContent = endIdx;
+      document.getElementById('selectionHint').style.display = 'block';
+
+      const selectedText = sel.toString().trim();
+      const textarea = document.getElementById('annContent');
+      if (textarea && !textarea.value) {
+        textarea.placeholder = '针对选中内容: "' + selectedText.slice(0, 50) + (selectedText.length > 50 ? '...' : '') + '" 的修改意见...';
+      }
+    });
+
+    // 右键菜单
+    const ctxMenu = document.createElement('div');
+    ctxMenu.id = 'ctx-menu';
+    ctxMenu.style.cssText = 'display:none;position:fixed;background:#fff;border:1px solid #d1d9e0;border-radius:8px;padding:4px 0;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:9999;min-width:180px;font-size:13px;';
+    ctxMenu.innerHTML = '<div class="ctx-item" data-action="copy-ref">📋 拷贝引用 URL</div>' +
+      '<div class="ctx-item" data-action="add-annotation">💬 添加批注</div>' +
+      '<div class="ctx-item" data-action="create-task">📌 创建任务</div>' +
+      '<hr style="margin:4px 0;border:none;border-top:1px solid #eee;">' +
+      '<div class="ctx-item" data-action="copy-text">📄 拷贝文本</div>';
+    document.body.appendChild(ctxMenu);
+
+    // Style menu items
+    const style = document.createElement('style');
+    style.textContent = '.ctx-item{padding:6px 14px;cursor:pointer;}.ctx-item:hover{background:#f6f8fa;}';
+    document.head.appendChild(style);
+
+    // Show menu on right-click in code area
+    document.querySelector('.code-table').addEventListener('contextmenu', function(e) {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed) return; // Only show when text is selected
+
+      e.preventDefault();
+      ctxMenu.style.display = 'block';
+      ctxMenu.style.left = e.clientX + 'px';
+      ctxMenu.style.top = e.clientY + 'px';
+    });
+
+    // Hide menu on click elsewhere
+    document.addEventListener('click', function() {
+      ctxMenu.style.display = 'none';
+    });
+
+    // Menu actions
+    ctxMenu.addEventListener('click', function(e) {
+      const action = e.target.dataset?.action;
+      if (!action) return;
+      ctxMenu.style.display = 'none';
+
+      const sel = window.getSelection();
+      const selectedText = sel ? sel.toString().trim() : '';
+      const lineInput = document.getElementById('annLine');
+      const line = lineInput ? lineInput.value : '0';
+
+      switch(action) {
+        case 'copy-ref':
+          const refUrl = CTX_URL + (line > 0 ? '#L' + line : '');
+          navigator.clipboard.writeText(refUrl).then(() => alert('已复制: ' + refUrl));
+          break;
+        case 'add-annotation':
+          document.getElementById('annContent').focus();
+          document.getElementById('annContent').value = selectedText ? '关于: "' + selectedText.slice(0, 100) + '"\\n\\n' : '';
+          document.querySelector('.add-annotation').scrollIntoView({behavior:'smooth'});
+          break;
+        case 'create-task':
+          const taskDesc = selectedText.slice(0, 60) || '来自 ' + FILE_PATH;
+          if (confirm('将选中内容创建为任务?\\n\\n"' + taskDesc + '"')) {
+            fetch('/api/spaces/' + SPACE_ID + '/annotations', {
+              method: 'POST',
+              headers: {'Content-Type':'application/json'},
+              body: JSON.stringify({filePath: FILE_PATH, line: parseInt(line)||0, content: selectedText || taskDesc, author: 'web-user', authorType: 'human'})
+            }).then(r => r.json()).then(d => {
+              return fetch('/api/spaces/' + SPACE_ID + '/annotations/' + d.annotation.id + '/to-task', {method:'POST', headers:{'Content-Type':'application/json'}});
+            }).then(() => { alert('已创建任务！'); location.reload(); });
+          }
+          break;
+        case 'copy-text':
+          navigator.clipboard.writeText(selectedText).then(() => alert('已复制文本'));
+          break;
+      }
+    });
+    </script>
   `);
 }
 
