@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>Context — docx 预览+批注 原型</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: #f1f5f9; }
+
+.header { background: #fff; border-bottom: 1px solid #e2e8f0; padding: 12px 24px; display: flex; align-items: center; gap: 12px; }
+.header .breadcrumb { font-size: 14px; color: #64748b; }
+.header .breadcrumb b { color: #1e293b; }
+.header .actions { margin-left: auto; display: flex; gap: 8px; }
+.header .actions button { padding: 6px 14px; border-radius: 8px; border: 1px solid #d1d5db; background: #fff; font-size: 12px; cursor: pointer; }
+.header .actions button:hover { background: #f8fafc; }
+
+.main { display: flex; height: calc(100vh - 56px); }
+
+/* 预览区 - 可编辑 */
+.preview-area { flex: 1; overflow-y: auto; padding: 40px 60px; background: #fff; border-right: 1px solid #e5e7eb; position: relative; }
+.preview-area:focus { outline: none; }
+.preview-area h2 { font-size: 20px; margin-bottom: 16px; color: #1e293b; }
+.preview-area p { font-size: 15px; line-height: 1.8; color: #374151; margin-bottom: 14px; }
+.preview-area .highlight { background: #fef3c7; border-bottom: 2px solid #f59e0b; padding: 1px 2px; border-radius: 2px; cursor: pointer; }
+.preview-area .highlight:hover { background: #fde68a; }
+
+/* 编辑状态指示 */
+.edit-indicator { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #1e293b; color: #fff; padding: 8px 20px; border-radius: 20px; font-size: 13px; opacity: 0.9; }
+
+/* 批注侧栏 */
+.ann-sidebar { width: 320px; min-width: 320px; background: #fafafa; overflow-y: auto; border-left: 0; }
+.ann-sidebar-header { padding: 14px 16px; font-size: 13px; font-weight: 600; color: #6b7280; border-bottom: 1px solid #e5e7eb; display: flex; align-items: center; justify-content: space-between; }
+.ann-sidebar-header .count { background: #f59e0b; color: #fff; padding: 2px 8px; border-radius: 10px; font-size: 11px; }
+
+/* 批注卡片 */
+.ann-card { background: #fff; border: 1px solid #e5e7eb; border-left: 3px solid #f59e0b; border-radius: 8px; margin: 10px 12px; padding: 12px; font-size: 13px; cursor: pointer; transition: box-shadow .15s; position: relative; }
+.ann-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,.1); }
+.ann-card-author { font-weight: 600; color: #374151; font-size: 12px; margin-bottom: 4px; }
+.ann-card-author .time { font-weight: 400; color: #9ca3af; margin-left: 6px; }
+.ann-card-author .loc { font-weight: 400; color: #9ca3af; margin-left: 6px; font-size: 11px; }
+.ann-card-quote { background: #f9fafb; border-left: 2px solid #d1d5db; padding: 4px 8px; margin: 6px 0; font-size: 12px; color: #6b7280; border-radius: 4px; }
+.ann-card-content { color: #1e293b; line-height: 1.5; margin-top: 4px; }
+.ann-card-actions { display: flex; gap: 6px; margin-top: 8px; }
+.ann-card-actions button { padding: 3px 10px; border-radius: 6px; border: 1px solid #e5e7eb; background: #fff; font-size: 11px; cursor: pointer; }
+.ann-card-actions button:hover { background: #f3f4f6; }
+
+/* 连接线 */
+.connector { position: absolute; right: -12px; top: 50%; width: 12px; height: 1px; background: #d1d5db; }
+
+/* 空状态 */
+.empty-state { padding: 40px 20px; text-align: center; color: #9ca3af; font-size: 13px; line-height: 1.6; }
+
+/* 浮动工具栏 */
+.float-toolbar { position: fixed; background: #1e293b; color: #fff; border-radius: 8px; padding: 4px 6px; box-shadow: 0 4px 12px rgba(0,0,0,.3); font-size: 13px; z-index: 999; display: flex; gap: 2px; }
+.float-toolbar button { background: none; border: none; color: #fff; cursor: pointer; padding: 6px 12px; border-radius: 6px; font-size: 13px; white-space: nowrap; }
+.float-toolbar button:hover { background: rgba(255,255,255,.15); }
+
+/* 框选按钮 */
+.region-btn { position: fixed; bottom: 24px; right: 348px; background: #3b82f6; color: #fff; border: none; width: 44px; height: 44px; border-radius: 50%; font-size: 18px; cursor: pointer; box-shadow: 0 4px 12px rgba(59,130,246,.4); }
+
+/* 批注输入（在侧栏里） */
+.ann-input-card { background: #fff; border: 2px solid #3b82f6; border-radius: 8px; margin: 10px 12px; padding: 12px; }
+.ann-input-card .quote { background: #eff6ff; border-left: 2px solid #3b82f6; padding: 4px 8px; margin-bottom: 8px; font-size: 12px; color: #3b82f6; border-radius: 4px; }
+.ann-input-card textarea { width: 100%; border: 1px solid #d1d5db; border-radius: 6px; padding: 8px; font-size: 13px; resize: none; height: 60px; outline: none; }
+.ann-input-card textarea:focus { border-color: #3b82f6; }
+.ann-input-card .submit-row { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.ann-input-card .submit-row button { padding: 6px 16px; border-radius: 6px; font-size: 12px; cursor: pointer; }
+.ann-input-card .submit-row .cancel { background: #fff; border: 1px solid #d1d5db; color: #6b7280; }
+.ann-input-card .submit-row .submit { background: #3b82f6; border: none; color: #fff; }
+</style>
+</head>
+<body>
+
+<!-- 顶部导航 -->
+<div class="header">
+  <div class="breadcrumb">
+    <a href="#" style="color:#3b82f6;text-decoration:none;">独立团指挥部</a> <span style="color:#d1d5db;">/</span> <b>会议纪要-0820.docx</b>
+    <span style="color:#9ca3af;font-size:12px;margin-left:8px;">Word 文档 · 可直接编辑</span>
+  </div>
+  <div class="actions">
+    <button>🖱️ 框选</button>
+    <button>🔗 引用</button>
+    <button>⬇️ 下载原文件</button>
+  </div>
+</div>
+
+<!-- 主体 -->
+<div class="main">
+
+  <!-- 左侧：预览+编辑（所见即所得） -->
+  <div class="preview-area" contenteditable="true">
+    <h2>金融信息获取与AI应用讨论</h2>
+    <p><b>日期：</b>2025年8月20日</p>
+    <p><b>参会人员：</b>罗敬为、张三、李四、王五</p>
+    <p>本次会议讨论了AI在金融信息获取中的应用场景。主要议题包括实时数据采集、<span class="highlight">自然语言处理在财报分析中的应用</span>、以及智能投研助手的产品规划。</p>
+    <p>关于数据采集方面，团队达成共识：优先接入Wind、Bloomberg等主流数据源，<span class="highlight">通过API网关统一管理数据订阅，确保数据质量和时效性</span>。</p>
+    <p>智能投研助手的核心功能定义为：</p>
+    <p>1. 自动化财报解读 — 上传PDF/Word格式财报，AI自动提取关键指标并生成摘要</p>
+    <p>2. 行业对比分析 — 横向对比同行业公司的财务数据，识别异常值</p>
+    <p>3. 实时舆情监控 — 监控新闻、公告、社交媒体，及时预警风险事件</p>
+    <p>下一步行动计划：技术团队在9月15日前完成数据接入层的原型开发，产品团队同步完成PRD文档。</p>
+  </div>
+
+  <!-- 右侧：批注侧栏 -->
+  <div class="ann-sidebar">
+    <div class="ann-sidebar-header">
+      💬 评论 <span class="count">2</span>
+    </div>
+
+    <!-- 批注卡片1 - 和第一个高亮对齐 -->
+    <div style="margin-top: 148px;">
+      <div class="ann-card">
+        <div class="ann-card-author">👤 罗敬为 <span class="loc">· 第4段</span> <span class="time">· 3分钟前</span></div>
+        <div class="ann-card-quote">「自然语言处理在财报分析中的应用」</div>
+        <div class="ann-card-content">这个方向要重点投入，调研一下市面上的开源NLP模型</div>
+        <div class="ann-card-actions">
+          <button>✅ 已处理</button>
+          <button>📋 转任务</button>
+          <button>📢 发到群</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 批注卡片2 - 和第二个高亮对齐 -->
+    <div style="margin-top: 20px;">
+      <div class="ann-card">
+        <div class="ann-card-author">🤖 张大彪 <span class="loc">· 第5段</span> <span class="time">· 1分钟前</span></div>
+        <div class="ann-card-quote">「通过API网关统一管理数据订阅，确保数据质量和时效性」</div>
+        <div class="ann-card-content">API网关建议用Kong或Traefik，我评估一下哪个更合适</div>
+        <div class="ann-card-actions">
+          <button>✅ 已处理</button>
+          <button>📋 转任务</button>
+          <button>📢 发到群</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 批注输入框（划选后出现在这里） -->
+    <div style="margin-top: 30px;">
+      <div class="ann-input-card">
+        <div class="quote">「1. 自动化财报解读 — 上传PDF/Word格式...」</div>
+        <textarea placeholder="输入你的评论..."></textarea>
+        <div class="submit-row">
+          <button class="cancel">取消</button>
+          <button class="submit">📝 提交</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- 浮动工具栏（选中文字时出现） -->
+<div class="float-toolbar" style="left: 380px; top: 255px; display: flex;">
+  <button>📝 批注</button>
+  <button>🔗 引用</button>
+  <button>📋 复制</button>
+</div>
+
+<!-- 编辑状态 -->
+<div class="edit-indicator">✏️ 点击文字即可编辑 · 自动保存</div>
+
+</body>
+</html>

@@ -1338,6 +1338,13 @@ const CSS = `
   .ann-margin-bubble .ann-bubble-content { color: var(--text); margin-top: 2px; }
   .ann-margin-bubble .ann-bubble-actions { display: flex; gap: 4px; margin-top: 4px; }
   .ann-badge { display: inline-flex; align-items: center; justify-content: center; background: #ef4444; color: #fff; font-size: 10px; font-weight: 700; min-width: 16px; height: 16px; border-radius: 8px; padding: 0 4px; margin-left: 4px; }
+  /* DOCX contenteditable styles */
+  #previewPanel[contenteditable="true"] p { margin-bottom: 14px; }
+  #previewPanel[contenteditable="true"] h1, #previewPanel[contenteditable="true"] h2, #previewPanel[contenteditable="true"] h3 { margin: 20px 0 10px; }
+  #previewPanel[contenteditable="true"] table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  #previewPanel[contenteditable="true"] td, #previewPanel[contenteditable="true"] th { border: 1px solid #d1d5db; padding: 6px 10px; }
+  #previewPanel[contenteditable="true"] ul, #previewPanel[contenteditable="true"] ol { margin: 8px 0 8px 20px; }
+  #previewPanel[contenteditable="true"]:focus { outline: none; box-shadow: inset 0 0 0 2px rgba(59,130,246,0.1); }
   /* Annotation cards in sidebar */
   .ann-card { padding: 10px 14px; background: var(--bg-page); border-radius: var(--radius); margin: 6px 10px; font-size: 13px; transition: background .15s; border-left: 3px solid transparent; }
   .ann-card:hover { background: var(--bg-hover); border-left-color: var(--primary); }
@@ -1664,30 +1671,30 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
     </div>`;
 
   } else if (isDocxHtml) {
-    // DOCX converted to HTML — render like MD with split pane
+    // DOCX: full-width WYSIWYG editor + annotation sidebar (no source pane)
     contentHtml = `
-    <div class="split-view" id="splitView">
-      <div class="split-pane split-pane-source" id="sourcePane">
-        <div class="split-header"><span>📘 HTML 源码 (docx)</span><span class="save-indicator" id="saveStatus">已保存</span></div>
-        <textarea id="sourceEditor" spellcheck="false" oninput="onSourceEdit()">${esc(file.content)}</textarea>
-      </div>
-      <div class="split-divider" id="splitDivider"></div>
-      <div class="split-pane" id="rightPane" style="display:flex;flex-direction:column;">
+    <div class="split-view" id="splitView" style="display:flex;height:100%;">
+      <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
         <div class="split-header" style="justify-content:space-between;">
-          <span>👁️ 预览 <span id="annBadge" class="ann-badge" style="display:none;">0</span></span>
-          <div style="display:flex;gap:4px;">
-            <button class="btn-small" onclick="toggleRegionMode()" title="框选批注">📐</button>
-            <button class="btn-small" onclick="doCopyRef()" title="复制引用">🔗</button>
-            <a href="/ctx/${spaceId}/${filePath}" download class="btn-small" title="下载原文件">⬇️</a>
+          <span>📄 ${esc(filePath)} <span class="save-indicator" id="saveStatus">✅ 已保存</span> <span id="annBadge" class="ann-badge" style="display:none;">0</span></span>
+          <div style="display:flex;gap:4px;align-items:center;">
+            <button class="btn-small" onclick="toggleRegionMode()" title="框选批注">🖱️ 框选</button>
+            <button class="btn-small" onclick="doCopyRef()" title="复制引用">🔗 引用</button>
+            <div style="position:relative;display:inline-block;" id="downloadMenu">
+              <button class="btn-small" onclick="document.getElementById('downloadDropdown').style.display=document.getElementById('downloadDropdown').style.display==='block'?'none':'block'" title="下载">⬇️ 下载</button>
+              <div id="downloadDropdown" style="display:none;position:absolute;right:0;top:100%;margin-top:4px;background:#fff;border:1px solid #d1d5db;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:100;min-width:180px;">
+                <a href="#" onclick="downloadEditedHtml();return false;" style="display:block;padding:8px 14px;font-size:12px;color:#1f2937;text-decoration:none;border-bottom:1px solid #f3f4f6;">⬇️ 下载编辑版 (.html)</a>
+                <a href="/ctx/${spaceId}/${filePath}" download style="display:block;padding:8px 14px;font-size:12px;color:#1f2937;text-decoration:none;">📎 下载原始 Word (.docx)</a>
+              </div>
+            </div>
           </div>
         </div>
-        <div style="display:flex;flex:1;overflow:hidden;">
-          <div id="previewPanel" class="right-panel" style="flex:1;overflow:auto;padding:20px 24px;position:relative;padding-right:24px;">
-            ${file.content}
-          </div>
-          <div id="annSidebar" class="ann-sidebar"><div style="padding:10px 12px;font-size:12px;font-weight:600;color:#6b7280;border-bottom:1px solid #e5e7eb;">💬 评论</div><div id="annCards"></div></div>
+        <div id="previewPanel" contenteditable="true" style="flex:1;overflow:auto;padding:40px 60px;line-height:1.8;font-size:15px;color:#1f2937;outline:none;background:#fff;position:relative;" oninput="onDocxEdit()">
+          ${file.content}
         </div>
+        <div style="text-align:center;padding:6px;font-size:11px;color:#9ca3af;background:#f9fafb;border-top:1px solid #e5e7eb;">✏️ 点击文字即可编辑 · 自动保存</div>
       </div>
+      <div id="annSidebar" class="ann-sidebar"><div style="padding:12px 16px;font-size:13px;font-weight:600;color:#6b7280;border-bottom:1px solid #e5e7eb;">💬 评论</div><div id="annCards"><div style="padding:40px 20px;text-align:center;color:#9ca3af;font-size:13px;line-height:1.6;">📝 选中文字后<br>可添加评论</div></div></div>
     </div>`;
   } else if (isMd) {
     const escapedContent = file.content.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$/g, '\\$');
@@ -1888,17 +1895,36 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
     var saveTimer = null;
     function onSourceEdit() {
       var ta = document.getElementById('sourceEditor');
-      if (IS_DOCX) {
-        // For docx HTML: just render the HTML directly
-        previewPanel.innerHTML = ta.value;
-        renderAnnBubbles();
-      } else if (IS_MD) {
+      if (IS_MD) {
         document.getElementById('previewPanel').innerHTML = miniMdToHtml(ta.value);
       }
       document.getElementById('saveStatus').textContent = '● 未保存';
       document.getElementById('saveStatus').style.color = '#f59e0b';
       clearTimeout(saveTimer);
       saveTimer = setTimeout(function() { autoSave(ta.value); }, 2000);
+    }
+    // DOCX contenteditable edit handler
+    var docxSaveTimer = null;
+    function onDocxEdit() {
+      document.getElementById('saveStatus').textContent = '● 未保存';
+      document.getElementById('saveStatus').style.color = '#f59e0b';
+      clearTimeout(docxSaveTimer);
+      docxSaveTimer = setTimeout(function() {
+        var panel = document.getElementById('previewPanel');
+        if (panel) autoSave(panel.innerHTML);
+      }, 2000);
+    }
+    // Download edited HTML as file
+    function downloadEditedHtml() {
+      var panel = document.getElementById('previewPanel');
+      var html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' + FILE_PATH + '</title></head><body>' + panel.innerHTML + '</body></html>';
+      var blob = new Blob([html], { type: 'text/html' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = FILE_PATH.replace(/\.docx$/i, '-edited.html');
+      a.click();
+      URL.revokeObjectURL(a.href);
+      document.getElementById('downloadDropdown').style.display = 'none';
     }
     function autoSave(content) {
       fetch('/api/spaces/' + SPACE_ID + '/files/' + FILE_PATH, {
@@ -2315,6 +2341,12 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
       });
     }
     function updateCartBadge() { var b = document.getElementById('cartBadge'); b.style.display = serverAnns.length > 0 ? 'flex' : 'none'; b.textContent = serverAnns.length; }
+
+    // Close download dropdown on outside click
+    document.addEventListener('click', function(e) {
+      var dd = document.getElementById('downloadDropdown');
+      if (dd && !e.target.closest('#downloadMenu')) dd.style.display = 'none';
+    });
 
     // ── Toast ──
     function showToast(msg) {
