@@ -1679,7 +1679,7 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
   } else if (isDocxHtml) {
     // DOCX: full-width WYSIWYG editor + annotation sidebar (no source pane)
     contentHtml = `
-    <div class="split-view" id="splitView" style="display:flex;height:100%;">
+    <div class="split-view" id="splitView" style="display:flex;height:calc(100vh - 220px);">
       <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
         <div class="split-header" style="justify-content:space-between;">
           <span>📄 ${esc(filePath)} <span class="save-indicator" id="saveStatus">✅ 已保存</span> <span id="annBadge" class="ann-badge" style="display:none;">0</span></span>
@@ -1695,7 +1695,7 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
             </div>
           </div>
         </div>
-        <div id="docxToolbar" style="display:flex;gap:2px;padding:6px 12px;border-bottom:1px solid #e5e7eb;background:#f9fafb;flex-wrap:wrap;align-items:center;">
+        <div id="docxToolbar" style="display:flex;gap:2px;padding:6px 12px;border-bottom:1px solid #e5e7eb;background:#f9fafb;flex-wrap:wrap;align-items:center;position:sticky;top:0;z-index:10;">
           <button onclick="document.execCommand('bold')" title="加粗" style="font-weight:700;" class="tb">B</button>
           <button onclick="document.execCommand('italic')" title="斜体" style="font-style:italic;" class="tb">I</button>
           <button onclick="document.execCommand('underline')" title="下划线" style="text-decoration:underline;" class="tb">U</button>
@@ -2155,20 +2155,42 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
       if (_tempHighlight && !serverAnns.length) { _tempHighlight.replaceWith(document.createTextNode(_tempHighlight.textContent)); _tempHighlight = null; }
     }
 
+    // ── Calculate lines from region rect ──
+    function calcRegionLines() {
+      if (!regionRect) return { line: 0, endLine: 0, text: '' };
+      var panel = document.getElementById('previewPanel');
+      if (!panel) return { line: 0, endLine: 0, text: '' };
+      var elems = Array.prototype.slice.call(panel.querySelectorAll('p,h1,h2,h3,h4,h5,h6,li,tr,blockquote,div'));
+      if (elems.length === 0) elems = Array.prototype.slice.call(panel.children);
+      var firstLine = 0, lastLine = 0, texts = [];
+      for (var i = 0; i < elems.length; i++) {
+        var r = elems[i].getBoundingClientRect();
+        var ry = regionRect.y, rh = regionRect.h;
+        if (r.bottom > ry && r.top < ry + rh) {
+          if (!firstLine) firstLine = i + 1;
+          lastLine = i + 1;
+          var t = (elems[i].textContent || '').trim();
+          if (t) texts.push(t);
+        }
+      }
+      return { line: firstLine, endLine: lastLine, text: texts.join(' ').substring(0, 200) };
+    }
+
     // ── Async region annotation submit ──
     function submitRegionAnnAsync(e) {
       e.preventDefault();
       var btn = document.getElementById('regionSubmitBtn');
       btn.textContent = '⏳ ...';
       btn.disabled = true;
+      var regionInfo = calcRegionLines();
       var body = {
         filePath: FILE_PATH,
-        line: selStartLine || 0, 
-        endLine: selEndLine || 0,
+        line: regionInfo.line, 
+        endLine: regionInfo.endLine,
         content: document.getElementById('regionTextarea').value,
         author: document.getElementById('annAuthor') ? document.getElementById('annAuthor').value : 'web-user',
         authorType: 'human',
-        selectedText: selectedText ? selectedText.substring(0, 200) : ''
+        selectedText: regionInfo.text || selectedText.substring(0, 200) || ''
       };
       fetch('/api/spaces/' + SPACE_ID + '/annotations', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -2372,9 +2394,15 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
       } else {
         panel.innerHTML = '<div style="font-weight:600;margin-bottom:8px;font-size:14px;">📋 批注清单 (' + serverAnns.length + ')</div>' +
           serverAnns.map(function(a, i) {
-            return '<div onclick="jumpToAnn(' + i + ')" style="padding:8px;border-bottom:1px solid var(--border);cursor:pointer;font-size:12px;">' +
+            return '<div style="padding:8px;border-bottom:1px solid var(--border);font-size:12px;">' +
+              '<div onclick="jumpToAnn(' + i + ')" style="cursor:pointer;">' +
               '<div style="font-weight:600;">' + (a.authorType==='human'?'👤':'🤖') + ' ' + escH(a.author) + ' · ' + (a.line>0?'第'+a.line+'行':'全文') + '</div>' +
+              (a.selectedText ? '<div style="background:#f9fafb;border-left:2px solid #d1d5db;padding:2px 6px;margin:4px 0;color:#6b7280;font-size:11px;">「' + escH(a.selectedText).substring(0,80) + '」</div>' : '') +
               '<div style="color:var(--text-secondary);margin-top:2px;">' + escH(a.content).substring(0,60) + '</div>' +
+              '</div>' +
+              '<div style="margin-top:4px;display:flex;gap:4px;">' +
+              '<button onclick="event.stopPropagation();sendAnnToGroup(' + i + ')" style="font-size:10px;padding:2px 8px;border:1px solid #d1d5db;border-radius:4px;background:#fff;cursor:pointer;">📢 发到群</button>' +
+              '</div>' +
             '</div>';
           }).join('');
       }
@@ -2395,8 +2423,8 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: msg })
       }).then(function(r) { return r.json(); }).then(function(d) {
-        if (d.success) showToast('📢 已发到群');
-        else showToast('❌ 发送失败');
+        if (d.success) showToast('📢 已加入通知队列，Bot 将自动推送到群');
+        else showToast('❌ 发送失败: ' + (d.error || ''));
       }).catch(function() { showToast('❌ 发送失败'); });
     }
 
