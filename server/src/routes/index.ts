@@ -2025,28 +2025,12 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
     // ── Annotation list rendering ──
     var serverAnns = ${JSON.stringify(openAnns.map((a: any) => ({ id: a.id, line: a.line, endLine: a.endLine, content: a.content, author: a.author, authorType: a.authorType, createdAt: a.createdAt })))};
     function renderAnnList() {
-      var list = document.getElementById('annList');
       var badge = document.getElementById('annBadge');
       if (serverAnns.length === 0) {
-        list.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px;">暂无批注<br>在预览区选中文字或框选区域开始批注 📝</div>';
         badge.style.display = 'none';
         return;
       }
       badge.style.display = 'inline-flex'; badge.textContent = serverAnns.length;
-      list.innerHTML = serverAnns.map(function(a, i) {
-        return '<div class="ann-card" data-idx="' + i + '" onclick="jumpToAnn(' + i + ')" style="cursor:pointer;">' +
-          '<div class="ann-card-header">' +
-            '<span>' + (a.authorType === 'human' ? '👤' : '🤖') + ' <b>' + escH(a.author) + '</b></span>' +
-            '<span style="font-size:11px;color:var(--text-muted);">' + (a.line > 0 ? '第' + a.line + (a.endLine > a.line ? '-' + a.endLine : '') + '行' : '全文') + '</span>' +
-          '</div>' +
-          '<div class="ann-card-content">' + escH(a.content) + '</div>' +
-          '<div class="ann-card-actions">' +
-            '<form method="POST" action="/s/${spaceId}/resolve-annotation/' + a.id + '" style="display:inline;"><input type="hidden" name="filePath" value="${esc(filePath)}"><button type="submit" class="btn-small">✅ 已处理</button></form>' +
-            '<form method="POST" action="/s/${spaceId}/annotation-to-task/' + a.id + '" style="display:inline;"><input type="hidden" name="filePath" value="${esc(filePath)}"><button type="submit" class="btn-small">📋 转任务</button></form>' +
-            '<form method="POST" action="/s/${spaceId}/annotation-to-chat/' + a.id + '" style="display:inline;"><input type="hidden" name="filePath" value="${esc(filePath)}"><button type="submit" class="btn-small">📢 发到群</button></form>' +
-          '</div>' +
-        '</div>';
-      }).join('');
     }
     function escH(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
@@ -2066,7 +2050,29 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
 
     // ── Cart panel ──
     var cartOpen = false;
-    function toggleCartPanel() { /* placeholder for future cross-file cart */ showToast('📋 批注清单: ' + serverAnns.length + ' 条'); }
+    function toggleCartPanel() {
+      var existing = document.getElementById('cartPanel');
+      if (existing) { existing.remove(); cartOpen = false; return; }
+      cartOpen = true;
+      var panel = document.createElement('div');
+      panel.id = 'cartPanel';
+      panel.className = 'cart-panel';
+      if (serverAnns.length === 0) {
+        panel.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:16px;">暂无批注 📝</div>';
+      } else {
+        panel.innerHTML = '<div style="font-weight:600;margin-bottom:8px;font-size:14px;">📋 批注清单 (' + serverAnns.length + ')</div>' +
+          serverAnns.map(function(a, i) {
+            return '<div onclick="jumpToAnn(' + i + ')" style="padding:8px;border-bottom:1px solid var(--border);cursor:pointer;font-size:12px;">' +
+              '<div style="font-weight:600;">' + (a.authorType==='human'?'👤':'🤖') + ' ' + escH(a.author) + ' · ' + (a.line>0?'第'+a.line+'行':'全文') + '</div>' +
+              '<div style="color:var(--text-secondary);margin-top:2px;">' + escH(a.content).substring(0,60) + '</div>' +
+            '</div>';
+          }).join('');
+      }
+      document.body.appendChild(panel);
+      document.addEventListener('click', function closeCart(e) {
+        if (!e.target.closest('#cartPanel,#cartFab')) { panel.remove(); cartOpen = false; document.removeEventListener('click', closeCart); }
+      });
+    }
     function updateCartBadge() { var b = document.getElementById('cartBadge'); b.style.display = serverAnns.length > 0 ? 'flex' : 'none'; b.textContent = serverAnns.length; }
 
     // ── Toast ──
