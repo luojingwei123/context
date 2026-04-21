@@ -1577,16 +1577,26 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
     const isPdf = ext === "pdf";
     const previewFrame = isPdf
       ? `<iframe src="${fileUrl}" style="width:100%;height:600px;border:1px solid var(--border);border-radius:var(--radius);" title="PDF Preview"></iframe>`
-      : `<div style="position:relative;">
+      : `<div style="position:relative;" id="officeContainer">
           <div id="officeLoading" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:var(--bg-card,#fff);border:1px solid var(--border);border-radius:var(--radius);z-index:10;">
             <div style="text-align:center;">
-              <div style="width:40px;height:40px;border:4px solid #e5e7eb;border-top-color:#3b82f6;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 16px;"></div>
-              <p style="font-size:15px;font-weight:500;margin:0;">文档加载中...</p>
-              <p style="font-size:12px;color:var(--text-muted,#666);margin:6px 0 0;">正在连接 Office Online 预览服务</p>
+              <div id="officeSpinner" style="width:40px;height:40px;border:4px solid #e5e7eb;border-top-color:#3b82f6;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 16px;"></div>
+              <p id="officeLoadText" style="font-size:15px;font-weight:500;margin:0;">文档加载中...</p>
+              <p id="officeLoadSub" style="font-size:12px;color:var(--text-muted,#666);margin:6px 0 0;">正在连接 Office Online 预览服务</p>
             </div>
           </div>
           <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
-          <iframe src="${viewerUrl}" style="width:100%;height:600px;border:1px solid var(--border);border-radius:var(--radius);" title="Office Preview" onload="var el=document.getElementById('officeLoading');if(el)el.style.display='none';"></iframe>
+          <iframe id="officeFrame" src="${viewerUrl}" style="width:100%;height:600px;border:1px solid var(--border);border-radius:var(--radius);" title="Office Preview" onload="clearTimeout(window._officeTimeout);var el=document.getElementById('officeLoading');if(el)el.style.display='none';"></iframe>
+          <script>
+          window._officeTimeout = setTimeout(function() {
+            var spinner = document.getElementById('officeSpinner');
+            var text = document.getElementById('officeLoadText');
+            var sub = document.getElementById('officeLoadSub');
+            if (spinner) spinner.style.display = 'none';
+            if (text) { text.textContent = '⚠️ 文档预览加载超时'; text.style.color = '#dc2626'; }
+            if (sub) sub.innerHTML = '可能原因：文件损坏、网络问题或 Office Online 服务不可用<br><a href="${fileUrl}" download style="color:#2563eb;margin-top:8px;display:inline-block;">⬇️ 直接下载文件查看</a>';
+          }, 15000);
+          </script>
         </div>`;
     contentHtml = `<div style="margin-top:16px;">
       ${previewFrame}
