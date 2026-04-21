@@ -350,7 +350,7 @@ router.put("/spaces/:id/notifications/:notifId/sent", async (req, res) => {
 /** Send notification (used by "发到群" button) */
 router.post("/spaces/:id/notify", async (req, res) => {
   try {
-    const { message, annotations, filePath } = req.body;
+    const { message, annotations, filePath, assignees } = req.body;
     
     // Build structured message from annotations
     let finalMessage = message || "";
@@ -397,6 +397,19 @@ router.post("/spaces/:id/notify", async (req, res) => {
         return lines.join("\n");
       });
       finalMessage = parts.join("\n\n");
+      
+      // Add assignee line
+      if (assignees && Array.isArray(assignees) && assignees.length > 0) {
+        const mentions = assignees.map((a: any) => `@${a.name}`).join(" ");
+        finalMessage += `\n\n👉 指派：${mentions} 请处理`;
+      } else {
+        // No assignee specified — let the notify bot decide
+        const notifyBotId2 = await storage.getSpaceNotifyBot(req.params.id);
+        if (notifyBotId2) {
+          const bot2 = await storage.getBot(notifyBotId2);
+          if (bot2) finalMessage += `\n\n👉 指派：@${bot2.name} 请分配`;
+        }
+      }
     }
     
     if (!finalMessage) return res.status(400).json({ error: "message or annotations required" });
@@ -2578,7 +2591,7 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
       var anns = [];
       boxes.forEach(function(b) { var idx = parseInt(b.getAttribute('data-idx')); if (serverAnns[idx]) anns.push(serverAnns[idx]); });
       if (anns.length === 0) { showToast('请先勾选要发送的批注'); return; }
-      sendAnnsToGroup(anns);
+      showAssignPanel(anns);
     }
     // Font size change — uses execCommand fontSize (1-7 scale)
     var currentFontLevel = 3; // default medium
@@ -2593,9 +2606,76 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
     function sendAnnToGroup(idx) {
       var a = serverAnns[idx];
       if (!a) return;
-      sendAnnsToGroup([a]);
+      showAssignPanel([a]);
     }
-    function sendAnnsToGroup(anns) {
+    var _assignPanelAnns = [];
+    function showAssignPanel(anns) {
+      _assignPanelAnns = anns;
+      // Remove existing panel
+      var old = document.getElementById('assignPanel');
+      if (old) old.remove();
+      
+      var panel = document.createElement('div');
+      panel.id = 'assignPanel';
+      panel.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:360px;max-height:500px;background:#fff;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.3);z-index:1000;overflow:hidden;';
+      panel.innerHTML = '<div style="padding:16px;border-bottom:1px solid #e5e7eb;">' +
+        '<div style="font-weight:600;font-size:15px;">📢 发送 ' + anns.length + ' 条批注到群</div>' +
+        '<div style="font-size:12px;color:#6b7280;margin-top:4px;">选择指派处理人（可选）</div>' +
+        '</div>' +
+        '<div id="assignMemberList" style="padding:12px 16px;max-height:280px;overflow-y:auto;">' +
+        '<div style="color:#9ca3af;font-size:12px;text-align:center;padding:16px;">加载成员列表...</div>' +
+        '</div>' +
+        '<div style="padding:12px 16px;border-top:1px solid #e5e7eb;display:flex;gap:8px;justify-content:flex-end;">' +
+        '<button onclick="doSendWithAssign(false)" style="padding:6px 14px;border:1px solid #d1d5db;border-radius:6px;background:#fff;cursor:pointer;font-size:13px;">📢 不指派，直接发</button>' +
+        '<button onclick="doSendWithAssign(true)" style="padding:6px 14px;border:none;border-radius:6px;background:#3b82f6;color:#fff;cursor:pointer;font-size:13px;">📢 发送并指派</button>' +
+        '</div>';
+      
+      // Backdrop
+      var backdrop = document.createElement('div');
+      backdrop.id = 'assignBackdrop';
+      backdrop.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.3);z-index:999;';
+      backdrop.onclick = function() { panel.remove(); backdrop.remove(); };
+      document.body.appendChild(backdrop);
+      document.body.appendChild(panel);
+      
+      // Load members
+      fetch('/api/spaces/' + SPACE_ID + '/members').then(function(r) { return r.json(); }).then(function(data) {
+        var members = data.members || data || [];
+        var list = document.getElementById('assignMemberList');
+        if (!members.length) {
+          list.innerHTML = '<div style="color:#9ca3af;font-size:12px;text-align:center;padding:16px;">暂无成员，将由通知 Bot 分配</div>';
+          return;
+        }
+        list.innerHTML = members.map(function(m) {
+          var icon = m.type === 'agent' ? '🤖' : '👤';
+          var role = m.role ? '<span style="font-size:10px;background:#e0e7ff;color:#4338ca;padding:1px 6px;border-radius:10px;margin-left:4px;">' + escH(m.role) + '</span>' : '';
+          return '<label style="display:flex;align-items:center;gap:8px;padding:8px;cursor:pointer;border-radius:6px;transition:background .15s;" onmouseover="this.style.background=\'#f3f4f6\'" onmouseout="this.style.background=\'transparent\'">' +
+            '<input type="checkbox" class="assign-check" value="' + escH(m.name) + '" data-uid="' + escH(m.channelUserId || m.name) + '">' +
+            '<span style="font-size:13px;">' + icon + ' ' + escH(m.name) + role + '</span>' +
+          '</label>';
+        }).join('');
+      }).catch(function() {
+        var list = document.getElementById('assignMemberList');
+        list.innerHTML = '<div style="color:#ef4444;font-size:12px;text-align:center;padding:16px;">加载失败</div>';
+      });
+    }
+    
+    function doSendWithAssign(withAssign) {
+      var assignees = [];
+      if (withAssign) {
+        var checks = document.querySelectorAll('.assign-check:checked');
+        checks.forEach(function(c) { assignees.push({ name: c.value, uid: c.getAttribute('data-uid') }); });
+      }
+      // Close panel
+      var p = document.getElementById('assignPanel');
+      var b = document.getElementById('assignBackdrop');
+      if (p) p.remove();
+      if (b) b.remove();
+      sendAnnsToGroup(_assignPanelAnns, assignees);
+    }
+
+    function sendAnnsToGroup(anns, assignees) {
+      assignees = assignees || [];
       if (!anns.length) { showToast('请选择要发送的批注'); return; }
       
       // For region annotations, try to capture screenshot
@@ -2616,7 +2696,7 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
       function doSend() {
         fetch('/api/spaces/' + SPACE_ID + '/notify', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ annotations: annotations, filePath: FILE_PATH })
+          body: JSON.stringify({ annotations: annotations, filePath: FILE_PATH, assignees: assignees })
         }).then(function(r) { return r.json(); }).then(function(d) {
           if (d.success && d.pushed) showToast('📢 已发送 ' + anns.length + ' 条批注到群');
           else if (d.success) showToast('📢 已保存，等待推送');
