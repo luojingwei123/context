@@ -693,7 +693,13 @@ router.get("/s/:id", async (req, res) => {
   try {
     const space = await storage.getSpace(req.params.id);
     if (!space) return res.status(404).send(notFoundPage("Space not found"));
-    const user = (req as any).ctxUser; res.type("text/html").send(await renderSpacePage(req.params.id, space, user));
+    const user = (req as any).ctxUser;
+    // Auto-join: when logged-in user visits a space, add them to user_spaces
+    if (user && user.id) {
+      const inSpace = await storage.isUserInSpace(user.id, req.params.id);
+      if (!inSpace) { await storage.addUserSpace(user.id, req.params.id, "member"); }
+    }
+    res.type("text/html").send(await renderSpacePage(req.params.id, space, user));
   } catch (err: any) { res.status(500).send(err.message); }
 });
 
