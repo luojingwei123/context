@@ -326,6 +326,17 @@ router.put("/spaces/:id/notifications/:notifId/sent", async (req, res) => {
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+/** Send notification (used by "发到群" button) */
+router.post("/spaces/:id/notify", async (req, res) => {
+  try {
+    const { message } = req.body;
+    if (!message) return res.status(400).json({ error: "message required" });
+    const user = await getCurrentUser(req);
+    await storage.addNotification(req.params.id, { type: "annotation", message, createdBy: user?.displayName || "web-user" });
+    res.json({ success: true });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 // ─── Context Menu API ───
 
 /** List custom menu items */
@@ -1009,11 +1020,7 @@ router.get("/s/:id/annotations", async (req, res) => {
         <div class="ann-actions">
           <form method="POST" action="/s/${req.params.id}/resolve-annotation/${a.id}" style="display:inline;">
             <input type="hidden" name="filePath" value="${esc(a.filePath)}">
-            <button type="submit" class="btn-small">✅ 已处理</button>
-          </form>
-          <form method="POST" action="/s/${req.params.id}/annotation-to-task/${a.id}" style="display:inline;">
-            <input type="hidden" name="filePath" value="${esc(a.filePath)}">
-            <button type="submit" class="btn-small">📋 转任务</button>
+            <button type="submit" class="btn-small">📦 归档</button>
           </form>
           <form method="POST" action="/s/${req.params.id}/annotation-to-chat/${a.id}" style="display:inline;">
             <input type="hidden" name="filePath" value="${esc(a.filePath)}">
@@ -1595,11 +1602,7 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
         <div class="ann-actions">
           <form method="POST" action="/s/${spaceId}/resolve-annotation/${a.id}" style="display:inline;">
             <input type="hidden" name="filePath" value="${esc(filePath)}">
-            <button type="submit" class="btn-small">✅ 已处理</button>
-          </form>
-          <form method="POST" action="/s/${spaceId}/annotation-to-task/${a.id}" style="display:inline;">
-            <input type="hidden" name="filePath" value="${esc(filePath)}">
-            <button type="submit" class="btn-small">📋 转任务</button>
+            <button type="submit" class="btn-small">📦 归档</button>
           </form>
           <form method="POST" action="/s/${spaceId}/annotation-to-chat/${a.id}" style="display:inline;">
             <input type="hidden" name="filePath" value="${esc(filePath)}">
@@ -1865,7 +1868,6 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
           '<div class="ann-card-content">' + escH(a.content) + '</div>' +
           '<div class="ann-card-actions">' +
             '<form method="POST" action="/s/'+SPACE_ID+'/resolve-annotation/'+a.id+'" style="display:inline;" onclick="event.stopPropagation()"><input type="hidden" name="filePath" value="'+FILE_PATH+'"><button type="submit" class="btn-small" style="font-size:11px;">📦 归档</button></form> ' +
-            '<form method="POST" action="/s/'+SPACE_ID+'/annotation-to-task/'+a.id+'" style="display:inline;" onclick="event.stopPropagation()"><input type="hidden" name="filePath" value="'+FILE_PATH+'"><button type="submit" class="btn-small" style="font-size:11px;">📋 转任务</button></form> ' +
             '<button class="btn-small" style="font-size:11px;" onclick="event.stopPropagation();sendAnnToGroup('+i+')">📢 发到群</button>' +
           '</div>' +
         '</div>';
@@ -2033,6 +2035,7 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
           renderAnnBubbles();
           var badge = document.getElementById('annBadge');
           if (badge) { badge.textContent = serverAnns.length; badge.style.display = 'inline'; }
+          updateCartBadge();
           showToast('✅ 批注已添加');
         }
         document.getElementById('annContent').value = '';
@@ -2138,6 +2141,7 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
         if (data.annotation) {
           serverAnns.push(data.annotation);
           renderAnnBubbles();
+          updateCartBadge();
           showToast('✅ 框选批注已添加');
         }
         document.getElementById('regionTextarea').value = '';
