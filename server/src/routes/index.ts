@@ -65,7 +65,7 @@ router.get("/health", (_req, res) => {
   res.json({
     status: "ok",
     service: "context-server",
-    version: "1.06",
+    version: "1.07",
     pluginVersion: "1.0.8",
     updateCommand: "clawhub update context-collab --force",
   });
@@ -552,37 +552,65 @@ router.get("/auth/me", async (req, res) => {
 });
 
 // ════════════════════════════════════════════════════════════════
-// /s/* — Web UI（人类浏览器完整功能）
+// /s/* — Web UI（需要登录）
 // ════════════════════════════════════════════════════════════════
 
-/** Home: list all spaces */
-router.get("/s", async (req, res) => {
+/** Auth guard: all /s/* routes require login */
+router.use("/s", async (req: any, res, next) => {
+  const user = await getCurrentUser(req);
+  if (!user) return res.redirect("/auth/login");
+  req.ctxUser = user; // attach to request for downstream handlers
+  next();
+});
+
+/** Home: my spaces list */
+router.get("/s", async (req: any, res) => {
   try {
-    const user = await getCurrentUser(req);
-    res.type("text/html").send(page("Context", user, `
-      <div class="hero">
+    const user = req.ctxUser;
+    const mySpaces = await storage.getUserSpaces(user.id);
+
+    const spacesHtml = mySpaces.length > 0
+      ? `<div class="file-grid">${mySpaces.map((s: any) => `
+          <a href="/s/${esc(s.id)}" class="file-card">
+            <div class="icon">📦</div>
+            <div class="name">${esc(s.name)}</div>
+            <div class="file-meta">
+              <span class="badge badge-channel">${esc(s.channel)}</span>
+              · ${s.userRole === 'owner' ? '👑 所有者' : '👤 成员'}
+            </div>
+          </a>
+        `).join("")}</div>`
+      : `<div class="empty-state">
+          <div class="empty-icon">📦</div>
+          <p>还没有加入任何空间</p>
+          <p style="font-size:13px;">创建一个新空间，或通过 Space ID 加入已有空间</p>
+        </div>`;
+
+    res.type("text/html").send(page("我的空间", user, `
+      <div class="hero" style="padding:36px 24px 28px;">
         <div class="hero-glow"></div>
-        <h1>📦 Context</h1>
-        <p class="hero-desc">多 Agent 协作协议引擎 — 共享空间、自动注入上下文、实时批注与任务管理</p>
-        <div class="hero-features">
-          <div class="feature"><div class="feature-icon">🤖</div><div class="feature-label">多 Agent 协作</div></div>
-          <div class="feature"><div class="feature-icon">📄</div><div class="feature-label">共享文件空间</div></div>
-          <div class="feature"><div class="feature-icon">💬</div><div class="feature-label">实时批注</div></div>
-          <div class="feature"><div class="feature-icon">📜</div><div class="feature-label">版本历史</div></div>
-        </div>
+        <h1>我的空间</h1>
+        <p class="hero-desc">欢迎回来，${esc(user.displayName)}</p>
       </div>
 
       <div class="card glass fade-in">
         <div class="card-header">
-          <h2 style="margin:0;">🔗 进入空间</h2>
+          <h2 style="margin:0;">📦 我的空间</h2>
+          <span class="badge badge-channel">${mySpaces.length} 个空间</span>
         </div>
-        <form onsubmit="var v=document.getElementById('sid').value.trim();if(v)location.href='/s/'+v;return false;" style="display:flex;gap:8px;">
-          <input id="sid" placeholder="输入 Space ID" style="flex:1;" required>
-          <button type="submit" class="btn btn-primary">进入 →</button>
+        ${spacesHtml}
+      </div>
+
+      <div class="card glass fade-in">
+        <div class="card-header">
+          <h2 style="margin:0;">🔗 加入空间</h2>
+        </div>
+        <form method="POST" action="/s/join" style="display:flex;gap:8px;">
+          <input name="spaceId" placeholder="输入 Space ID" style="flex:1;" required>
+          <button type="submit" class="btn btn-primary">加入 →</button>
         </form>
       </div>
 
-      ${user ? `
       <div class="card glass fade-in">
         <div class="card-header">
           <h2 style="margin:0;">➕ 创建新空间</h2>
@@ -590,33 +618,22 @@ router.get("/s", async (req, res) => {
         <form method="POST" action="/s/create" class="form-grid">
           <div class="form-row">
             <div class="form-group"><label>空间名称</label><input name="name" required placeholder="My Project"></div>
-            <div class="form-group"><label>创建者</label><input name="createdBy" value="${esc(user.displayName)}" readonly></div>
+            <div class="form-group"><label>Channel</label><select name="channel"><option>discord</option><option>dmwork</option><option>telegram</option><option>slack</option><option>webchat</option></select></div>
           </div>
           <div class="form-row">
-            <div class="form-group"><label>Channel</label><select name="channel"><option>discord</option><option>dmwork</option><option>telegram</option><option>slack</option><option>webchat</option></select></div>
             <div class="form-group"><label>Group ID</label><input name="groupId" required placeholder="群 / 服务器 ID"></div>
-          </div>
-          <div class="form-group">
-            <label>模板</label>
-            <select name="template">
-              <option value="software-dev">🛠 软件开发</option>
-              <option value="content">📝 内容创作</option>
-              <option value="research">🔬 研究项目</option>
-              <option value="blank">📄 空白</option>
-            </select>
+            <div class="form-group">
+              <label>模板</label>
+              <select name="template">
+                <option value="software-dev">🛠 软件开发</option>
+                <option value="content">📝 内容创作</option>
+                <option value="research">🔬 研究项目</option>
+                <option value="blank">📄 空白</option>
+              </select>
+            </div>
           </div>
           <button type="submit" class="btn btn-primary" style="align-self:flex-start;">🚀 创建空间</button>
         </form>
-      </div>
-      ` : `
-      <div class="card glass fade-in" style="text-align:center;padding:40px;">
-        <p style="color:var(--text-secondary);margin-bottom:16px;">登录后可创建新空间</p>
-        <a href="/auth/login" class="btn btn-primary">登录 / 注册</a>
-      </div>
-      `}
-
-      <div style="text-align:center;padding:24px 0;color:var(--text-muted);font-size:13px;">
-        <p>Powered by <b>Context</b> — Open-source multi-agent collaboration protocol</p>
       </div>
     `));
   } catch (err: any) { res.status(500).send(err.message); }
@@ -636,19 +653,37 @@ router.post("/s/:id/settings", async (req, res) => {
   } catch (err: any) { res.status(500).send(err.message); }
 });
 
-router.post("/s/create", async (req, res) => {
+/** Join a space by ID */
+router.post("/s/join", async (req: any, res) => {
   try {
-    const { name, channel, groupId, template, createdBy } = req.body;
+    const user = req.ctxUser;
+    const spaceId = (req.body.spaceId || "").trim();
+    if (!spaceId) return res.redirect("/s");
+    const space = await storage.getSpace(spaceId);
+    if (!space) return res.redirect("/s?error=space_not_found");
+    await storage.addUserSpace(user.id, spaceId, "member");
+    res.redirect(`/s/${spaceId}`);
+  } catch (err: any) { res.status(500).send(err.message); }
+});
+
+router.post("/s/create", async (req: any, res) => {
+  try {
+    const user = req.ctxUser;
+    const { name, channel, groupId, template } = req.body;
     if (!name || !channel || !groupId) return res.status(400).send("name, channel, groupId required");
 
     const existing = await storage.findSpace({ channel, groupId });
-    if (existing) return res.redirect(`/s/${existing.id}`);
+    if (existing) {
+      await storage.addUserSpace(user.id, existing.id, "member");
+      return res.redirect(`/s/${existing.id}`);
+    }
 
-    const space = await storage.createSpace({ name, channel, groupId, createdBy: createdBy || "web-user" });
+    const space = await storage.createSpace({ name, channel, groupId, createdBy: user.displayName });
     const tmpl = template || "software-dev";
-    await storage.writeFile(space.id, "SPACE.md", getTemplate("SPACE.md", tmpl, { spaceName: name, channel }), createdBy || "web-user");
-    await storage.writeFile(space.id, "TEAM.md", getTemplate("TEAM.md", tmpl, { spaceName: name }), createdBy || "web-user");
-    await storage.writeFile(space.id, "TASK.md", getTemplate("TASK.md", tmpl, { spaceName: name }), createdBy || "web-user");
+    await storage.writeFile(space.id, "SPACE.md", getTemplate("SPACE.md", tmpl, { spaceName: name, channel }), user.displayName);
+    await storage.writeFile(space.id, "TEAM.md", getTemplate("TEAM.md", tmpl, { spaceName: name }), user.displayName);
+    await storage.writeFile(space.id, "TASK.md", getTemplate("TASK.md", tmpl, { spaceName: name }), user.displayName);
+    await storage.addUserSpace(user.id, space.id, "owner");
     res.redirect(`/s/${space.id}`);
   } catch (err: any) { res.status(500).send(err.message); }
 });
@@ -658,7 +693,7 @@ router.get("/s/:id", async (req, res) => {
   try {
     const space = await storage.getSpace(req.params.id);
     if (!space) return res.status(404).send(notFoundPage("Space not found"));
-    const user = await getCurrentUser(req); res.type("text/html").send(await renderSpacePage(req.params.id, space, user));
+    const user = (req as any).ctxUser; res.type("text/html").send(await renderSpacePage(req.params.id, space, user));
   } catch (err: any) { res.status(500).send(err.message); }
 });
 
@@ -671,7 +706,7 @@ router.get("/s/:id/view/*", async (req, res) => {
     const file = await storage.getFile(req.params.id, filePath);
     if (!file) return res.status(404).send(notFoundPage(`File not found: ${filePath}`));
     const annotations = await storage.getAnnotations(req.params.id, filePath);
-    const user = await getCurrentUser(req); let html = renderFilePage(space, file, req.params.id, filePath, annotations, req, user);
+    const user = (req as any).ctxUser; let html = renderFilePage(space, file, req.params.id, filePath, annotations, req, user);
     if (req.query.sent === "1") {
       html = html.replace("</h1>", '</h1><div style="background:#dafbe1;border:1px solid #1a7f37;border-radius:6px;padding:10px 14px;margin:8px 0;color:#1a7f37;">✅ 已发送到群聊</div>');
     }
@@ -687,7 +722,7 @@ router.get("/s/:id/edit/*", async (req, res) => {
     if (!space) return res.status(404).send(notFoundPage("Space not found"));
     const file = await storage.getFile(req.params.id, filePath);
     const content = file?.content || "";
-    const user = await getCurrentUser(req);
+    const user = (req as any).ctxUser;
     res.type("text/html").send(page(`编辑 ${filePath}`, user, `
       <div class="breadcrumb"><a href="/s/${req.params.id}">← ${esc(space.name)}</a> <span>/</span> 编辑: <b>${esc(filePath)}</b></div>
       <div class="card">
@@ -722,7 +757,7 @@ router.get("/s/:id/new", async (req, res) => {
   try {
     const space = await storage.getSpace(req.params.id);
     if (!space) return res.status(404).send(notFoundPage("Space not found"));
-    const user = await getCurrentUser(req);
+    const user = (req as any).ctxUser;
     res.type("text/html").send(page("新建文件", user, `
       <div class="breadcrumb"><a href="/s/${req.params.id}">← ${esc(space.name)}</a> <span>/</span> 新建文件</div>
       <div class="card">
@@ -917,7 +952,7 @@ router.get("/s/:id/search", async (req, res) => {
       </div>`;
     }).join("");
 
-    const user = await getCurrentUser(req);
+    const user = (req as any).ctxUser;
     res.type("text/html").send(page(`搜索: ${q}`, user, `
       <div class="breadcrumb"><a href="/s/${req.params.id}">← ${esc(space.name)}</a> <span>/</span> 搜索</div>
       <div class="card">
@@ -982,7 +1017,7 @@ router.get("/s/:id/annotations", async (req, res) => {
         `).join("") + "</details>"
       : "";
 
-    const user = await getCurrentUser(req);
+    const user = (req as any).ctxUser;
     res.type("text/html").send(page("批注清单", user, `
       <div class="breadcrumb"><a href="/s/${req.params.id}">← ${esc(space.name)}</a> <span>/</span> 批注清单</div>
       <div class="card">
@@ -1015,7 +1050,7 @@ router.get("/s/:id/history/*", async (req, res) => {
       `).join("")
       : "<tr><td colspan='5' style='text-align:center;color:var(--text-muted);padding:24px;'>暂无历史版本</td></tr>";
 
-    const user = await getCurrentUser(req);
+    const user = (req as any).ctxUser;
     res.type("text/html").send(page(`历史 — ${filePath}`, user, `
       <div class="breadcrumb"><a href="/s/${req.params.id}">← ${esc(space.name)}</a> <span>/</span> <a href="/s/${req.params.id}/view/${filePath}">${esc(filePath)}</a> <span>/</span> 版本历史</div>
       <div class="card">
@@ -1044,7 +1079,7 @@ router.get("/s/:id/version/:version/*", async (req, res) => {
     const data = await storage.getFileVersion(req.params.id, filePath, version);
     if (!data) return res.status(404).send(notFoundPage(`Version v${version} not found`));
 
-    const user = await getCurrentUser(req);
+    const user = (req as any).ctxUser;
     res.type("text/html").send(page(`v${version} — ${filePath}`, user, `
       <div class="breadcrumb">
         <a href="/s/${req.params.id}">${esc(space.name)}</a> <span>/</span>

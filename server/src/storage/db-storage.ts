@@ -603,3 +603,51 @@ export async function cleanExpiredSessions(): Promise<void> {
   const db = getDb();
   await db.execute({ sql: "DELETE FROM sessions WHERE expires_at < ?", args: [new Date().toISOString()] });
 }
+
+// ═══════════════════════════════════════
+// User ↔ Space relationships
+
+export async function addUserSpace(userId: string, spaceId: string, role = "member"): Promise<void> {
+  const db = getDb();
+  await db.execute({
+    sql: "INSERT OR IGNORE INTO user_spaces (user_id, space_id, role, joined_at) VALUES (?, ?, ?, ?)",
+    args: [userId, spaceId, role, new Date().toISOString()],
+  });
+}
+
+export async function removeUserSpace(userId: string, spaceId: string): Promise<void> {
+  const db = getDb();
+  await db.execute({ sql: "DELETE FROM user_spaces WHERE user_id = ? AND space_id = ?", args: [userId, spaceId] });
+}
+
+export async function getUserSpaces(userId: string): Promise<any[]> {
+  const db = getDb();
+  const result = await db.execute({
+    sql: `SELECT s.id, s.name, s.channel, s.group_id, s.created_at, s.updated_at,
+                 us.role as user_role, us.joined_at as user_joined_at
+          FROM user_spaces us
+          JOIN spaces s ON s.id = us.space_id
+          WHERE us.user_id = ?
+          ORDER BY us.joined_at DESC`,
+    args: [userId],
+  });
+  return result.rows.map(r => ({
+    id: r.id as string,
+    name: r.name as string,
+    channel: r.channel as string,
+    groupId: r.group_id as string,
+    createdAt: r.created_at as string,
+    updatedAt: r.updated_at as string,
+    userRole: r.user_role as string,
+    userJoinedAt: r.user_joined_at as string,
+  }));
+}
+
+export async function isUserInSpace(userId: string, spaceId: string): Promise<boolean> {
+  const db = getDb();
+  const result = await db.execute({
+    sql: "SELECT 1 FROM user_spaces WHERE user_id = ? AND space_id = ?",
+    args: [userId, spaceId],
+  });
+  return result.rows.length > 0;
+}

@@ -43,4 +43,9 @@ export {
   getSessionUser,
   deleteSession,
   cleanExpiredSessions,
+  // User ↔ Space
+  addUserSpace,
+  removeUserSpace,
+  getUserSpaces,
+  isUserInSpace,
 } from "./db-storage.js";

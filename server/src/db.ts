@@ -138,5 +138,16 @@ export async function initDb(): Promise<void> {
     );
 
     CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+
+    CREATE TABLE IF NOT EXISTS user_spaces (
+      user_id TEXT NOT NULL,
+      space_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'member',
+      joined_at TEXT NOT NULL,
+      PRIMARY KEY(user_id, space_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_user_spaces_user ON user_spaces(user_id);
+    CREATE INDEX IF NOT EXISTS idx_user_spaces_space ON user_spaces(space_id);
   `);
 }
