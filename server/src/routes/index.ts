@@ -1323,7 +1323,7 @@ const CSS = `
   .split-divider:hover, .split-divider.dragging { background: var(--primary); }
   /* Right panel tabs */
   /* Annotation sidebar */
-  .ann-sidebar { width: 260px; min-width: 260px; border-left: 1px solid var(--border); overflow-y: auto; background: var(--bg-page); }
+  .ann-sidebar { width: 280px; min-width: 280px; position: absolute; right: 0; top: 0; bottom: 0; border-left: 1px solid var(--border); overflow-y: auto; background: var(--bg-page); box-shadow: -4px 0 12px rgba(0,0,0,.08); z-index: 50; }
   .ann-margin-bubble { position: relative; margin: 6px 8px; padding: 8px 10px; background: #fff; border-left: 3px solid #f59e0b; border-radius: 0 var(--radius) var(--radius) 0; font-size: 12px; line-height: 1.5; cursor: pointer; transition: all .15s; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
   .ann-margin-bubble:hover { background: #fde68a; }
   .ann-margin-bubble .ann-bubble-author { font-weight: 600; color: var(--text-secondary); font-size: 11px; }
@@ -1674,7 +1674,7 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
           </div>
         </div>
         <div style="display:flex;flex:1;overflow:hidden;">
-          <div id="previewPanel" class="right-panel" style="flex:1;overflow:auto;padding:20px 24px;position:relative;">
+          <div id="previewPanel" class="right-panel" style="flex:1;overflow:auto;padding:20px 24px;position:relative;padding-right:24px;">
             ${file.content}
           </div>
           <div id="annSidebar" class="ann-sidebar" style="display:none;"></div>
@@ -1697,7 +1697,7 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
             <button id="regionBtn" onclick="toggleRegionMode()" class="btn-small" style="font-size:11px;" title="框选批注">🖱️ 框选</button>
           </div>
         </div>
-        <div id="previewPanel" class="right-panel" style="flex:1;overflow:auto;padding:20px 24px;position:relative;">
+        <div id="previewPanel" class="right-panel" style="flex:1;overflow:auto;padding:20px 24px;position:relative;padding-right:24px;">
           ${mdToHtml(file.content)}
         </div>
       </div>
@@ -1823,6 +1823,7 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
     const FILE_PATH = '${filePath.replace(/'/g, "\\'")}';
     const CTX_URL = location.origin + '/ctx/${spaceId}/${filePath.replace(/'/g, "\\'")}';
     const BASE_URL = location.origin;
+    const IS_DOCX = ${filePath.match(/\.docx$/i) && !isOffice ? 'true' : 'false'};
     const IS_MD = ${filePath.match(/\.(md|markdown)$/i) ? 'true' : 'false'};
     let selectedText = '', selStartLine = 0, selEndLine = 0;
     let _tempHighlight = null;
@@ -1871,7 +1872,11 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
     var saveTimer = null;
     function onSourceEdit() {
       var ta = document.getElementById('sourceEditor');
-      if (IS_MD) {
+      if (IS_DOCX) {
+        // For docx HTML: just render the HTML directly
+        previewPanel.innerHTML = source;
+        renderAnnBubbles();
+      } else if (IS_MD) {
         document.getElementById('previewPanel').innerHTML = miniMdToHtml(ta.value);
       }
       document.getElementById('saveStatus').textContent = '● 未保存';
@@ -2025,8 +2030,15 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
       document.getElementById('annLine').value = selStartLine || 0;
       document.getElementById('annEndLine').value = selEndLine || 0;
       if (rect) {
-        box.style.left = Math.min(rect.left, window.innerWidth - 360) + 'px';
-        box.style.top = (rect.bottom + 8) + 'px';
+        // Position near selection but capped within viewport
+        var boxLeft = Math.min(rect.left, window.innerWidth - 360);
+        var boxTop = rect.bottom + 8;
+        // If too far down, position above selection
+        if (boxTop + 250 > window.innerHeight) {
+          boxTop = Math.max(8, rect.top - 260);
+        }
+        box.style.left = boxLeft + 'px';
+        box.style.top = boxTop + 'px';
       }
       box.style.display = 'block';
       document.getElementById('annContent').focus();
