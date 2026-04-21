@@ -90,6 +90,7 @@ export async function initDb(): Promise<void> {
       status TEXT NOT NULL DEFAULT 'open',
       resolved_by TEXT,
       assignee TEXT,
+      selected_text TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -155,6 +156,7 @@ export async function initDb(): Promise<void> {
   // Migrations for existing databases
   const migrations = [
     "ALTER TABLE annotations ADD COLUMN assignee TEXT",
+    "ALTER TABLE annotations ADD COLUMN selected_text TEXT",
   ];
   for (const m of migrations) {
     try { await db.execute(m); console.log("[DB] Migration OK:", m); } catch (_e) { /* column exists */ }

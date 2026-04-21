@@ -1323,7 +1323,15 @@ const CSS = `
   .split-divider:hover, .split-divider.dragging { background: var(--primary); }
   /* Right panel tabs */
   /* Annotation sidebar */
-  .ann-sidebar { width: 280px; min-width: 280px; position: absolute; right: 0; top: 0; bottom: 0; border-left: 1px solid var(--border); overflow-y: auto; background: var(--bg-page); box-shadow: -4px 0 12px rgba(0,0,0,.08); z-index: 50; }
+  .ann-sidebar { width: 280px; min-width: 280px; border-left: 1px solid var(--border); overflow-y: auto; background: #fafafa; flex-shrink: 0; position: relative; }
+  .ann-sidebar .ann-card { background: #fff; border: 1px solid #e5e7eb; border-left: 3px solid #f59e0b; border-radius: 8px; padding: 10px 12px; margin: 8px; font-size: 12px; cursor: pointer; transition: box-shadow .15s; position: relative; }
+  .ann-sidebar .ann-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,.1); }
+  .ann-card-author { font-weight: 600; font-size: 11px; color: #374151; }
+  .ann-card-quote { font-size: 11px; color: #6b7280; margin: 4px 0; padding: 4px 6px; background: #fef3c7; border-radius: 4px; line-height: 1.3; max-height: 40px; overflow: hidden; }
+  .ann-card-content { font-size: 12px; color: #1f2937; margin: 4px 0; line-height: 1.4; }
+  .ann-card-actions { display: flex; gap: 4px; margin-top: 6px; }
+  .ann-highlight-persistent { background: #fef3c7; border-bottom: 2px solid #f59e0b; border-radius: 2px; cursor: pointer; }
+  .ann-input-card { background: #fff; border: 1px solid #3b82f6; border-radius: 8px; padding: 10px 12px; margin: 8px; }
   .ann-margin-bubble { position: relative; margin: 6px 8px; padding: 8px 10px; background: #fff; border-left: 3px solid #f59e0b; border-radius: 0 var(--radius) var(--radius) 0; font-size: 12px; line-height: 1.5; cursor: pointer; transition: all .15s; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
   .ann-margin-bubble:hover { background: #fde68a; }
   .ann-margin-bubble .ann-bubble-author { font-weight: 600; color: var(--text-secondary); font-size: 11px; }
@@ -1677,7 +1685,7 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
           <div id="previewPanel" class="right-panel" style="flex:1;overflow:auto;padding:20px 24px;position:relative;padding-right:24px;">
             ${file.content}
           </div>
-          <div id="annSidebar" class="ann-sidebar" style="display:none;"></div>
+          <div id="annSidebar" class="ann-sidebar"><div style="padding:10px 12px;font-size:12px;font-weight:600;color:#6b7280;border-bottom:1px solid #e5e7eb;">💬 评论</div><div id="annCards"></div></div>
         </div>
       </div>
     </div>`;
@@ -1763,7 +1771,7 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
     </div>
 
     <!-- Annotation input box (appears near selection) -->
-    <div id="annInputBox" style="display:none;position:fixed;width:340px;background:#ffffff;border:1px solid #d1d5db;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.25);padding:16px;z-index:9998;">
+    <div id="annInputBox" style="display:none;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
         <b style="font-size:13px;">📝 添加批注</b>
         <span onclick="hideAnnInput()" style="cursor:pointer;font-size:18px;color:var(--text-muted);">✕</span>
@@ -1828,35 +1836,37 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
     let selectedText = '', selStartLine = 0, selEndLine = 0;
     let _tempHighlight = null;
 
-    // ── Render annotation bubbles inline in preview ──
+    // ── Render annotation cards in sidebar (enterprise WeChat style) ──
     function renderAnnBubbles() {
-      // Render annotations in the sidebar panel (right side of preview)
-      var sidebar = document.getElementById('annSidebar');
-      if (!sidebar) return;
-      if (!serverAnns.length) {
-        sidebar.style.display = 'none';
-        return;
-      }
-      sidebar.style.display = 'block';
-      sidebar.innerHTML = '<div style="padding:8px 12px;font-size:12px;font-weight:600;color:var(--text-secondary);border-bottom:1px solid var(--border);">💬 批注 (' + serverAnns.length + ')</div>' +
-        serverAnns.map(function(a, i) {
-          return '<div class="ann-margin-bubble" onclick="jumpToAnn('+i+')">' +
-            '<div class="ann-bubble-author">' + (a.authorType==='human'?'👤':'🤖') + ' ' + escH(a.author) + '</div>' +
-            '<div style="font-size:10px;color:var(--text-muted);">' + (a.line>0?'第'+a.line+(a.endLine>a.line?'-'+a.endLine:'')+'行':'全文') + '</div>' +
-            '<div class="ann-bubble-content">' + escH(a.content) + '</div>' +
-            '<div class="ann-bubble-actions">' +
-              '<form method="POST" action="/s/'+SPACE_ID+'/resolve-annotation/'+a.id+'" style="display:inline;" onclick="event.stopPropagation()"><input type="hidden" name="filePath" value="'+FILE_PATH+'"><button type="submit" class="btn-small">✅ 处理</button></form> ' +
-              '<form method="POST" action="/s/'+SPACE_ID+'/annotation-to-task/'+a.id+'" style="display:inline;" onclick="event.stopPropagation()"><input type="hidden" name="filePath" value="'+FILE_PATH+'"><button type="submit" class="btn-small">📋 任务</button></form>' +
-            '</div>' +
-          '</div>';
-        }).join('');
-      // Also highlight annotated lines in preview
+      var container = document.getElementById('annCards');
+      if (!container) return;
+      var badge = document.getElementById('annBadge');
+      if (badge) { badge.textContent = serverAnns.length; badge.style.display = serverAnns.length ? 'inline' : 'none'; }
+      
+      container.innerHTML = serverAnns.map(function(a, i) {
+        var quote = a.selectedText ? '<div class="ann-card-quote">「' + escH(a.selectedText).substring(0, 60) + '」</div>' : '';
+        var loc = a.line > 0 ? '第' + a.line + (a.endLine > a.line ? '-' + a.endLine : '') + '行' : '';
+        return '<div class="ann-card" data-ann-idx="' + i + '" onclick="jumpToAnn(' + i + ')">' +
+          '<div class="ann-card-author">' + (a.authorType==='human'?'👤':'🤖') + ' ' + escH(a.author) + (loc ? ' · ' + loc : '') + '</div>' +
+          quote +
+          '<div class="ann-card-content">' + escH(a.content) + '</div>' +
+          '<div class="ann-card-actions">' +
+            '<form method="POST" action="/s/'+SPACE_ID+'/resolve-annotation/'+a.id+'" style="display:inline;" onclick="event.stopPropagation()"><input type="hidden" name="filePath" value="'+FILE_PATH+'"><button type="submit" class="btn-small" style="font-size:11px;">✅ 处理</button></form> ' +
+            '<form method="POST" action="/s/'+SPACE_ID+'/annotation-to-task/'+a.id+'" style="display:inline;" onclick="event.stopPropagation()"><input type="hidden" name="filePath" value="'+FILE_PATH+'"><button type="submit" class="btn-small" style="font-size:11px;">📋 任务</button></form>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+      
       highlightAnnotatedLines();
     }
     function highlightAnnotatedLines() {
       var panel = document.getElementById('previewPanel');
       if (!panel) return;
-      // Highlight lines in code tables
+      // Remove old highlights
+      panel.querySelectorAll('.ann-highlight-persistent').forEach(function(el) {
+        el.replaceWith(document.createTextNode(el.textContent));
+      });
+      // For code-table files
       var rows = panel.querySelectorAll('tr');
       serverAnns.forEach(function(a) {
         if (a.line > 0 && rows.length >= a.line) {
@@ -2007,45 +2017,70 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
     // ── Annotate action ──
     function doAnnotate() {
       document.getElementById('floatToolbar').style.display = 'none';
-      // Auto-switch to annotations tab
-      // auto-stay on preview with inline annotations
-      // Temp highlight
+      // Highlight selection
       var sel = window.getSelection();
-      var rect = null;
       if (sel && sel.rangeCount > 0) {
-        var range = sel.getRangeAt(0).cloneRange();
-        rect = range.getBoundingClientRect();
         try {
           if (_tempHighlight) { _tempHighlight.replaceWith(document.createTextNode(_tempHighlight.textContent)); _tempHighlight = null; }
+          var range = sel.getRangeAt(0).cloneRange();
           var span = document.createElement('span');
-          span.className = 'ann-highlight';
-          span.style.cssText = 'background:#fef3c7;border-bottom:2px solid #f59e0b;border-radius:2px;';
+          span.className = 'ann-highlight-persistent';
           range.surroundContents(span);
           _tempHighlight = span;
         } catch(e) {}
         sel.removeAllRanges();
       }
-      var box = document.getElementById('annInputBox');
-      document.getElementById('annQuote').textContent = '「' + selectedText.substring(0, 80) + (selectedText.length > 80 ? '…' : '') + '」';
-      document.getElementById('annLine').value = selStartLine || 0;
-      document.getElementById('annEndLine').value = selEndLine || 0;
-      if (rect) {
-        // Position near selection but capped within viewport
-        var boxLeft = Math.min(rect.left, window.innerWidth - 360);
-        var boxTop = rect.bottom + 8;
-        // If too far down, position above selection
-        if (boxTop + 250 > window.innerHeight) {
-          boxTop = Math.max(8, rect.top - 260);
+      // Show input card in sidebar
+      var container = document.getElementById('annCards');
+      if (!container) return;
+      var quoteText = selectedText.substring(0, 80) + (selectedText.length > 80 ? '…' : '');
+      var inputHtml = '<div class="ann-input-card" id="annInputCard">' +
+        '<div style="font-size:11px;color:#6b7280;margin-bottom:4px;">📝 新建评论</div>' +
+        (quoteText ? '<div class="ann-card-quote">「' + escH(quoteText) + '」</div>' : '') +
+        '<textarea id="annContent" style="width:100%;height:60px;border:1px solid #d1d5db;border-radius:6px;padding:8px;font-size:12px;resize:none;box-sizing:border-box;" placeholder="输入评论..." autofocus></textarea>' +
+        '<div style="display:flex;gap:6px;margin-top:6px;justify-content:flex-end;">' +
+          '<button onclick="hideAnnInput()" class="btn" style="padding:4px 10px;font-size:11px;">取消</button>' +
+          '<button onclick="submitAnnFromSidebar()" class="btn btn-primary" style="padding:4px 10px;font-size:11px;" id="annSubmitBtn">💬 评论</button>' +
+        '</div>' +
+      '</div>';
+      // Insert at top of cards
+      container.insertAdjacentHTML('afterbegin', inputHtml);
+      // Scroll sidebar to show input
+      var card = document.getElementById('annInputCard');
+      if (card) card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      setTimeout(function() { var ta = document.getElementById('annContent'); if (ta) ta.focus(); }, 50);
+    }
+    function submitAnnFromSidebar() {
+      var btn = document.getElementById('annSubmitBtn');
+      if (btn) { btn.textContent = '⏳...'; btn.disabled = true; }
+      var body = {
+        filePath: FILE_PATH,
+        line: selStartLine || 0,
+        endLine: selEndLine || 0,
+        content: document.getElementById('annContent').value,
+        author: (document.getElementById('annAuthor') && document.getElementById('annAuthor').value) || 'web-user',
+        authorType: 'human',
+        selectedText: selectedText.substring(0, 200)
+      };
+      fetch('/api/spaces/' + SPACE_ID + '/annotations', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      }).then(function(r) { return r.json(); }).then(function(data) {
+        if (data.annotation) {
+          serverAnns.unshift(data.annotation);
+          renderAnnBubbles();
+          showToast('✅ 评论已添加');
         }
-        box.style.left = boxLeft + 'px';
-        box.style.top = boxTop + 'px';
-      }
-      box.style.display = 'block';
-      document.getElementById('annContent').focus();
+        hideAnnInput();
+      }).catch(function(err) {
+        showToast('❌ 提交失败: ' + err.message);
+        if (btn) { btn.textContent = '💬 评论'; btn.disabled = false; }
+      });
     }
     function hideAnnInput() {
-      document.getElementById('annInputBox').style.display = 'none';
-      if (_tempHighlight) { _tempHighlight.replaceWith(document.createTextNode(_tempHighlight.textContent)); _tempHighlight = null; }
+      var card = document.getElementById('annInputCard');
+      if (card) card.remove();
+      if (_tempHighlight && !serverAnns.length) { _tempHighlight.replaceWith(document.createTextNode(_tempHighlight.textContent)); _tempHighlight = null; }
     }
 
     // ── Async region annotation submit ──
