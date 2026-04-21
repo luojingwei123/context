@@ -350,8 +350,24 @@ router.post("/spaces/:id/notify", async (req, res) => {
     const { message } = req.body;
     if (!message) return res.status(400).json({ error: "message required" });
     const user = await getCurrentUser(req);
+    // Save to DB
     await storage.addNotification(req.params.id, { type: "annotation", message, createdBy: user?.displayName || "web-user" });
-    res.json({ success: true });
+    
+    // Try direct push via channel API
+    const space = (await storage.getSpace(req.params.id))!;
+    let pushed = false;
+    if (space.channel === "dmwork" && space.groupId && process.env.DMWORK_BOT_TOKEN) {
+      try {
+        const apiUrl = process.env.DMWORK_API_URL || "https://im.deepminer.com.cn/api";
+        const resp = await fetch(`${apiUrl}/v1/bot/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.DMWORK_BOT_TOKEN}` },
+          body: JSON.stringify({ channel_id: space.groupId, channel_type: 2, payload: { type: 1, content: `📢 [Context 批注]\n${message}` } }),
+        });
+        if (resp.ok) pushed = true;
+      } catch (e) { console.error("[Notify] DMWork push failed:", e); }
+    }
+    res.json({ success: true, pushed });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
@@ -2434,19 +2450,13 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
       if (anns.length === 0) { showToast('请先勾选要发送的批注'); return; }
       sendAnnsToGroup(anns);
     }
-    // Font size change
+    // Font size change — uses execCommand fontSize (1-7 scale)
+    var currentFontLevel = 3; // default medium
     function changeFontSize(dir) {
       var sel = window.getSelection();
-      if (!sel || sel.rangeCount === 0) return;
-      var range = sel.getRangeAt(0);
-      if (range.collapsed) { showToast('请先选中文字'); return; }
-      // Get current font size
-      var el = range.startContainer.parentElement;
-      var cur = parseFloat(window.getComputedStyle(el).fontSize) || 15;
-      var next = Math.max(10, Math.min(48, cur + dir * 2));
-      var span = document.createElement('span');
-      span.style.fontSize = next + 'px';
-      range.surroundContents(span);
+      if (!sel || sel.rangeCount === 0 || sel.isCollapsed) { showToast('请先选中文字'); return; }
+      currentFontLevel = Math.max(1, Math.min(7, currentFontLevel + dir));
+      document.execCommand('fontSize', false, String(currentFontLevel));
       document.getElementById('previewPanel').focus();
     }
     // Send annotations to group chat via notify API
@@ -2468,7 +2478,8 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: msg })
       }).then(function(r) { return r.json(); }).then(function(d) {
-        if (d.success) showToast('📢 已发送 ' + anns.length + ' 条批注到通知队列');
+        if (d.success && d.pushed) showToast('📢 已发送 ' + anns.length + ' 条批注到群');
+        else if (d.success) showToast('📢 已保存，等待推送');
         else showToast('❌ 发送失败: ' + (d.error || ''));
       }).catch(function() { showToast('❌ 发送失败'); });
     }
