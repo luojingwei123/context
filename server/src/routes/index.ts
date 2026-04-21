@@ -65,7 +65,7 @@ router.get("/health", (_req, res) => {
   res.json({
     status: "ok",
     service: "context-server",
-    version: "1.11",
+    version: "1.12",
     pluginVersion: "1.0.8",
     updateCommand: "clawhub update context-collab --force",
   });
@@ -1293,6 +1293,12 @@ const CSS = `
   .editor-area:focus { border-color: var(--primary); box-shadow: 0 0 0 4px var(--primary-light); }
   /* Split view */
   .split-view { display: flex; gap: 0; border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; min-height: 500px; background: var(--bg-card); }
+  .ann-marker { position: absolute; right: 4px; width: 20px; height: 20px; background: #f59e0b; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; cursor: pointer; color: #fff; font-weight: bold; z-index: 10; }
+  .ann-marker:hover .ann-tooltip { display: block; }
+  .ann-tooltip { display: none; position: absolute; right: 28px; top: -4px; background: #1e293b; color: #fff; padding: 8px 12px; border-radius: 8px; font-size: 12px; white-space: pre-wrap; max-width: 280px; box-shadow: 0 4px 12px rgba(0,0,0,.3); z-index: 100; }
+  .ann-highlight { background: #fef3c7; border-bottom: 2px solid #f59e0b; }
+  .cart-panel { position: fixed; bottom: 88px; right: 24px; width: 360px; max-height: 400px; overflow-y: auto; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-md); z-index: 50; padding: 12px; }
+  .preview-wrapper { position: relative; }
   .split-pane { flex: 1; min-width: 0; overflow: auto; position: relative; }
   .split-pane-source { border-right: 1px solid var(--border); background: var(--bg-code); }
   .split-pane-source textarea { width: 100%; height: 100%; min-height: 500px; border: none; outline: none; padding: 16px; font-family: "SF Mono","Fira Code",Menlo,monospace; font-size: 13px; line-height: 1.6; resize: none; background: transparent; color: var(--text); tab-size: 2; }
@@ -1301,10 +1307,12 @@ const CSS = `
   .split-divider { width: 4px; background: var(--border); cursor: col-resize; flex-shrink: 0; transition: background .2s; }
   .split-divider:hover, .split-divider.dragging { background: var(--primary); }
   /* Right panel tabs */
-  .right-tabs { display: flex; gap: 0; }
-  .right-tab { padding: 8px 16px; font-size: 13px; cursor: pointer; border-bottom: 2px solid transparent; color: var(--text-muted); font-weight: 500; background: none; border-top: none; border-left: none; border-right: none; transition: all .15s; }
-  .right-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
-  .right-tab:hover { color: var(--text); }
+  /* Annotation margin bubbles */
+  .ann-margin-bubble { position: relative; margin: 8px 0; padding: 8px 12px; background: #fef3c7; border-left: 3px solid #f59e0b; border-radius: 0 var(--radius) var(--radius) 0; font-size: 12px; line-height: 1.5; cursor: pointer; transition: background .15s; }
+  .ann-margin-bubble:hover { background: #fde68a; }
+  .ann-margin-bubble .ann-bubble-author { font-weight: 600; color: var(--text-secondary); font-size: 11px; }
+  .ann-margin-bubble .ann-bubble-content { color: var(--text); margin-top: 2px; }
+  .ann-margin-bubble .ann-bubble-actions { display: flex; gap: 4px; margin-top: 4px; }
   .ann-badge { display: inline-flex; align-items: center; justify-content: center; background: #ef4444; color: #fff; font-size: 10px; font-weight: 700; min-width: 16px; height: 16px; border-radius: 8px; padding: 0 4px; margin-left: 4px; }
   /* Annotation cards in sidebar */
   .ann-card { padding: 10px 14px; background: var(--bg-page); border-radius: var(--radius); margin: 6px 10px; font-size: 13px; transition: background .15s; border-left: 3px solid transparent; }
@@ -1640,20 +1648,14 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
       </div>
       <div class="split-divider" id="splitDivider"></div>
       <div class="split-pane" id="rightPane" style="display:flex;flex-direction:column;">
-        <div class="split-header" style="gap:0;padding:0;">
-          <div class="right-tabs" id="rightTabs">
-            <button class="right-tab active" data-tab="preview" onclick="switchRightTab('preview')">👁️ 预览</button>
-            <button class="right-tab" data-tab="annotations" onclick="switchRightTab('annotations')">💬 批注 <span id="annBadge" class="ann-badge" style="display:none;">0</span></button>
-          </div>
-          <div style="display:flex;gap:4px;padding:0 8px;">
+        <div class="split-header" style="justify-content:space-between;">
+          <span>👁️ 预览 <span id="annBadge" class="ann-badge" style="display:none;">0</span></span>
+          <div style="display:flex;gap:4px;">
             <button id="regionBtn" onclick="toggleRegionMode()" class="btn-small" style="font-size:11px;" title="框选批注">🖱️ 框选</button>
           </div>
         </div>
-        <div id="previewPanel" class="right-panel" style="flex:1;overflow:auto;padding:20px 24px;">
+        <div id="previewPanel" class="right-panel" style="flex:1;overflow:auto;padding:20px 24px;position:relative;">
           ${mdToHtml(file.content)}
-        </div>
-        <div id="annPanel" class="right-panel" style="flex:1;overflow:auto;display:none;">
-          <div class="ann-sidebar-inner" id="annList"></div>
         </div>
       </div>
     </div>`;
@@ -1667,20 +1669,14 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
       </div>
       <div class="split-divider" id="splitDivider"></div>
       <div class="split-pane" id="rightPane" style="display:flex;flex-direction:column;">
-        <div class="split-header" style="gap:0;padding:0;">
-          <div class="right-tabs" id="rightTabs">
-            <button class="right-tab active" data-tab="preview" onclick="switchRightTab('preview')">👁️ 预览</button>
-            <button class="right-tab" data-tab="annotations" onclick="switchRightTab('annotations')">💬 批注 <span id="annBadge" class="ann-badge" style="display:none;">0</span></button>
-          </div>
-          <div style="display:flex;gap:4px;padding:0 8px;">
+        <div class="split-header" style="justify-content:space-between;">
+          <span>👁️ 预览 <span id="annBadge" class="ann-badge" style="display:none;">0</span></span>
+          <div style="display:flex;gap:4px;">
             <button id="regionBtn" onclick="toggleRegionMode()" class="btn-small" style="font-size:11px;">🖱️ 框选</button>
           </div>
         </div>
-        <div id="previewPanel" class="right-panel" style="flex:1;overflow:auto;">
+        <div id="previewPanel" class="right-panel" style="flex:1;overflow:auto;position:relative;">
           <table class="code-table">${numberedContent}</table>
-        </div>
-        <div id="annPanel" class="right-panel" style="flex:1;overflow:auto;display:none;">
-          <div class="ann-sidebar-inner" id="annList"></div>
         </div>
       </div>
     </div>`;
@@ -1791,11 +1787,29 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
     let selectedText = '', selStartLine = 0, selEndLine = 0;
     let _tempHighlight = null;
 
-    // ── Right panel tab switching ──
-    function switchRightTab(tab) {
-      document.querySelectorAll('.right-tab').forEach(function(b) { b.classList.toggle('active', b.dataset.tab === tab); });
-      document.getElementById('previewPanel').style.display = tab === 'preview' ? 'block' : 'none';
-      document.getElementById('annPanel').style.display = tab === 'annotations' ? 'block' : 'none';
+    // ── Render annotation bubbles inline in preview ──
+    function renderAnnBubbles() {
+      document.querySelectorAll('.ann-margin-bubble').forEach(function(el) { el.remove(); });
+      var panel = document.getElementById('previewPanel');
+      if (!panel || !serverAnns.length) return;
+      serverAnns.forEach(function(a) {
+        var bubble = document.createElement('div');
+        bubble.className = 'ann-margin-bubble';
+        bubble.innerHTML = '<div class="ann-bubble-author">' + (a.authorType==='human'?'👤':'🤖') + ' ' + escH(a.author) + ' · ' + (a.line>0?'第'+a.line+(a.endLine>a.line?'-'+a.endLine:'')+'行':'全文') + '</div>' +
+          '<div class="ann-bubble-content">' + escH(a.content) + '</div>' +
+          '<div class="ann-bubble-actions">' +
+            '<form method="POST" action="/s/'+SPACE_ID+'/resolve-annotation/'+a.id+'" style="display:inline;"><input type="hidden" name="filePath" value="'+FILE_PATH+'"><button type="submit" class="btn-small">✅</button></form> ' +
+            '<form method="POST" action="/s/'+SPACE_ID+'/annotation-to-task/'+a.id+'" style="display:inline;"><input type="hidden" name="filePath" value="'+FILE_PATH+'"><button type="submit" class="btn-small">📋</button></form>' +
+          '</div>';
+        // Insert after relevant line
+        if (a.line > 0) {
+          var rows = panel.querySelectorAll('tr');
+          if (rows.length && a.line <= rows.length) { rows[a.line-1].parentNode.insertBefore(bubble, rows[a.line-1].nextSibling); return; }
+          var elems = panel.querySelectorAll('h1,h2,h3,h4,p,li,blockquote,pre');
+          if (elems.length && a.line <= elems.length) { elems[a.line-1].parentNode.insertBefore(bubble, elems[a.line-1].nextSibling); return; }
+        }
+        panel.appendChild(bubble);
+      });
     }
 
     // ── Live edit → preview (md only) ──
@@ -1887,7 +1901,7 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
     function doAnnotate() {
       document.getElementById('floatToolbar').style.display = 'none';
       // Auto-switch to annotations tab
-      switchRightTab('annotations');
+      // auto-stay on preview with inline annotations
       // Temp highlight
       var sel = window.getSelection();
       var rect = null;
@@ -1990,7 +2004,7 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
       if (!regionRect || regionRect.w < 20 || regionRect.h < 20) { hideDragBox(); regionStart = null; regionRect = null; return; }
       regionStart = null;
       // Auto-switch to annotations tab
-      switchRightTab('annotations');
+      // auto-stay on preview with inline annotations
       // Show region input
       var inputBox = document.getElementById('regionInputBox');
       document.getElementById('regionThumb').textContent = '📐 已选区域 ' + Math.round(regionRect.w) + ' × ' + Math.round(regionRect.h) + ' px';
@@ -2043,7 +2057,7 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
       var rows = document.querySelectorAll('.code-table tr');
       var target = rows[a.line - 1];
       if (target) {
-        switchRightTab('preview');
+        // preview always visible
         target.scrollIntoView({ behavior: 'smooth', block: 'center' });
         target.style.background = '#fde68a';
         setTimeout(function() { target.style.background = ''; }, 2000);
@@ -2065,7 +2079,7 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
     }
 
     // Init
-    renderAnnList();
+    renderAnnBubbles();
     updateCartBadge();
     </script>
   `);
