@@ -102,6 +102,66 @@ function rowToSpace(row: any): Space {
 // ═══════════════════════════════════════
 // Files
 
+/** Check if a file extension is a binary (non-text) format */
+export function isBinaryFile(filePath: string): boolean {
+  const ext = filePath.split(".").pop()?.toLowerCase() || "";
+  const binaryExts = new Set([
+    "doc", "docx", "xls", "xlsx", "ppt", "pptx", "pdf",
+    "png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "tiff",
+    "zip", "tar", "gz", "7z", "rar",
+    "mp3", "mp4", "wav", "avi", "mov", "mkv",
+    "ttf", "otf", "woff", "woff2", "eot",
+  ]);
+  return binaryExts.has(ext);
+}
+
+/** Write a binary file (Buffer) to file_blobs + a placeholder in files */
+export async function writeBinaryFile(spaceId: string, filePath: string, data: Buffer, modifiedBy: string): Promise<SpaceFile> {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const mimeType = guessMimeType(filePath);
+  const size = data.length;
+
+  // Upsert into file_blobs
+  await db.execute({
+    sql: "INSERT OR REPLACE INTO file_blobs (space_id, path, data) VALUES (?, ?, ?)",
+    args: [spaceId, filePath, data],
+  });
+
+  // Also upsert a placeholder in files table (for listing, version tracking, etc.)
+  const existing = await db.execute({
+    sql: "SELECT version FROM files WHERE space_id = ? AND path = ?",
+    args: [spaceId, filePath],
+  });
+
+  let version = 1;
+  if (existing.rows.length > 0) {
+    version = (existing.rows[0].version as number) + 1;
+    await db.execute({
+      sql: "UPDATE files SET content = ?, mime_type = ?, version = ?, modified_by = ?, size = ?, updated_at = ? WHERE space_id = ? AND path = ?",
+      args: [`[binary file: ${mimeType}, ${size} bytes]`, mimeType, version, modifiedBy, size, now, spaceId, filePath],
+    });
+  } else {
+    await db.execute({
+      sql: "INSERT INTO files (space_id, path, content, mime_type, version, modified_by, size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      args: [spaceId, filePath, `[binary file: ${mimeType}, ${size} bytes]`, mimeType, version, modifiedBy, size, now, now],
+    });
+  }
+
+  return {
+    id: filePath,
+    spaceId,
+    path: filePath,
+    content: `[binary file: ${mimeType}, ${size} bytes]`,
+    mimeType,
+    size,
+    version,
+    modifiedBy,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
 export async function writeFile(spaceId: string, filePath: string, content: string, modifiedBy: string): Promise<SpaceFile> {
   const db = getDb();
   const now = new Date().toISOString();

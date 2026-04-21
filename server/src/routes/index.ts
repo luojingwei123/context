@@ -916,8 +916,13 @@ router.post("/s/:id/upload", async (req, res) => {
               ? fileData.slice(0, -2)
               : fileData;
             
-            const content = trimmed.toString("utf-8");
-            await storage.writeFile(req.params.id, filename, content, "web-upload");
+            // Binary files → file_blobs, text files → files table
+            if (storage.isBinaryFile(filename)) {
+              await storage.writeBinaryFile(req.params.id, filename, trimmed, "web-upload");
+            } else {
+              const content = trimmed.toString("utf-8");
+              await storage.writeFile(req.params.id, filename, content, "web-upload");
+            }
           }
           res.redirect(`/s/${req.params.id}`);
         } catch (e: any) { res.status(500).send(e.message); }
@@ -1428,10 +1433,23 @@ async function renderSpacePage(spaceId: string, space: any, user?: any): Promise
         <p>拖拽文件到此处上传，或点击选择文件</p>
         <p style="font-size:12px;color:var(--text-muted);">支持所有格式：文档、图片、代码文件等</p>
         <form id="uploadForm" method="POST" action="/s/${spaceId}/upload" enctype="multipart/form-data" style="display:none;">
-          <input type="file" id="fileInput" name="file" multiple onchange="document.getElementById('uploadForm').submit()">
+          <input type="file" id="fileInput" name="file" multiple onchange="startUpload()">
         </form>
       </div>
+      <!-- Upload loading overlay -->
+      <div id="uploadOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:none;align-items:center;justify-content:center;">
+        <div style="background:var(--bg-card,#fff);border-radius:16px;padding:32px 48px;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,.2);">
+          <div class="spinner" style="width:40px;height:40px;border:4px solid #e5e7eb;border-top-color:#3b82f6;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 16px;"></div>
+          <p style="font-size:16px;font-weight:500;margin:0;">上传中...</p>
+          <p style="font-size:13px;color:var(--text-muted,#666);margin:6px 0 0;">请稍候</p>
+        </div>
+      </div>
+      <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
       <script>
+      function startUpload() {
+        document.getElementById('uploadOverlay').style.display = 'flex';
+        document.getElementById('uploadForm').submit();
+      }
       var zone = document.getElementById('uploadZone');
       zone.addEventListener('dragover', function(e) { e.preventDefault(); zone.classList.add('drag-over'); });
       zone.addEventListener('dragleave', function() { zone.classList.remove('drag-over'); });
@@ -1439,7 +1457,7 @@ async function renderSpacePage(spaceId: string, space: any, user?: any): Promise
         e.preventDefault(); zone.classList.remove('drag-over');
         var input = document.getElementById('fileInput');
         input.files = e.dataTransfer.files;
-        document.getElementById('uploadForm').submit();
+        startUpload();
       });
       </script>
     </div>
@@ -1559,7 +1577,17 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
     const isPdf = ext === "pdf";
     const previewFrame = isPdf
       ? `<iframe src="${fileUrl}" style="width:100%;height:600px;border:1px solid var(--border);border-radius:var(--radius);" title="PDF Preview"></iframe>`
-      : `<iframe src="${viewerUrl}" style="width:100%;height:600px;border:1px solid var(--border);border-radius:var(--radius);" title="Office Preview"></iframe>`;
+      : `<div style="position:relative;">
+          <div id="officeLoading" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:var(--bg-card,#fff);border:1px solid var(--border);border-radius:var(--radius);z-index:10;">
+            <div style="text-align:center;">
+              <div style="width:40px;height:40px;border:4px solid #e5e7eb;border-top-color:#3b82f6;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 16px;"></div>
+              <p style="font-size:15px;font-weight:500;margin:0;">文档加载中...</p>
+              <p style="font-size:12px;color:var(--text-muted,#666);margin:6px 0 0;">正在连接 Office Online 预览服务</p>
+            </div>
+          </div>
+          <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
+          <iframe src="${viewerUrl}" style="width:100%;height:600px;border:1px solid var(--border);border-radius:var(--radius);" title="Office Preview" onload="var el=document.getElementById('officeLoading');if(el)el.style.display='none';"></iframe>
+        </div>`;
     contentHtml = `<div style="margin-top:16px;">
       ${previewFrame}
       <div style="margin-top:12px;text-align:center;">

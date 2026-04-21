@@ -14,6 +14,8 @@ export {
   updateSpace,
   deleteSpace,
   writeFile,
+  writeBinaryFile,
+  isBinaryFile,
   getFile,
   getFileRaw,
   deleteFile,
