@@ -1733,6 +1733,9 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
           <button onclick="document.execCommand('foreColor',false,'#ef4444');document.getElementById('previewPanel').focus()" title="红色" class="tb" style="color:#ef4444;">A</button>
           <button onclick="document.execCommand('foreColor',false,'#3b82f6');document.getElementById('previewPanel').focus()" title="蓝色" class="tb" style="color:#3b82f6;">A</button>
           <button onclick="document.execCommand('foreColor',false,'#1f2937');document.getElementById('previewPanel').focus()" title="黑色" class="tb">A</button>
+          <span class="tb-sep"></span>
+          <button onclick="changeFontSize(1)" title="字号增大" class="tb">A↑</button>
+          <button onclick="changeFontSize(-1)" title="字号缩小" class="tb">A↓</button>
         </div>
         <div id="previewPanel" contenteditable="true" style="flex:1;overflow:auto;padding:40px 60px;line-height:1.8;font-size:15px;color:#1f2937;outline:none;background:#fff;position:relative;" oninput="onDocxEdit()">
           ${file.content}
@@ -2397,16 +2400,19 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
       if (serverAnns.length === 0) {
         panel.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:16px;">暂无批注 📝</div>';
       } else {
-        panel.innerHTML = '<div style="font-weight:600;margin-bottom:8px;font-size:14px;">📋 批注清单 (' + serverAnns.length + ')</div>' +
+        panel.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">' +
+          '<span style="font-weight:600;font-size:14px;">📋 批注清单 (' + serverAnns.length + ')</span>' +
+          '<div style="display:flex;gap:4px;align-items:center;">' +
+          '<label style="font-size:11px;cursor:pointer;color:var(--text-secondary);"><input type="checkbox" id="cartSelectAll" onchange="toggleCartAll(this.checked)" style="margin-right:2px;">全选</label>' +
+          '<button onclick="sendCartChecked()" style="font-size:11px;padding:3px 10px;border:1px solid #3b82f6;border-radius:4px;background:#3b82f6;color:#fff;cursor:pointer;">📢 发到群</button>' +
+          '</div></div>' +
           serverAnns.map(function(a, i) {
-            return '<div style="padding:8px;border-bottom:1px solid var(--border);font-size:12px;">' +
-              '<div onclick="jumpToAnn(' + i + ')" style="cursor:pointer;">' +
-              '<div style="font-weight:600;">' + (a.authorType==='human'?'👤':'🤖') + ' ' + escH(a.author) + ' · ' + (a.line>0?'第'+a.line+'行':'全文') + '</div>' +
+            return '<div style="padding:8px;border-bottom:1px solid var(--border);font-size:12px;display:flex;gap:6px;align-items:flex-start;">' +
+              '<input type="checkbox" class="cart-check" data-idx="' + i + '" style="margin-top:3px;flex-shrink:0;">' +
+              '<div style="flex:1;" onclick="jumpToAnn(' + i + ')" style="cursor:pointer;">' +
+              '<div style="font-weight:600;cursor:pointer;">' + (a.authorType==='human'?'👤':'🤖') + ' ' + escH(a.author) + ' · ' + (a.line>0?'第'+a.line+'行':'全文') + '</div>' +
               (a.selectedText ? '<div style="background:#f9fafb;border-left:2px solid #d1d5db;padding:2px 6px;margin:4px 0;color:#6b7280;font-size:11px;">「' + escH(a.selectedText).substring(0,80) + '」</div>' : '') +
               '<div style="color:var(--text-secondary);margin-top:2px;">' + escH(a.content).substring(0,60) + '</div>' +
-              '</div>' +
-              '<div style="margin-top:4px;display:flex;gap:4px;">' +
-              '<button onclick="event.stopPropagation();sendAnnToGroup(' + i + ')" style="font-size:10px;padding:2px 8px;border:1px solid #d1d5db;border-radius:4px;background:#fff;cursor:pointer;">📢 发到群</button>' +
               '</div>' +
             '</div>';
           }).join('');
@@ -2417,18 +2423,52 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
       });
     }
     function updateCartBadge() { var b = document.getElementById('cartBadge'); if(b){b.style.display = serverAnns.length > 0 ? 'flex' : 'none'; b.textContent = serverAnns.length;} }
-    // Send annotation to group chat via notify API
+    function toggleCartAll(checked) {
+      var boxes = document.querySelectorAll('.cart-check');
+      boxes.forEach(function(b) { b.checked = checked; });
+    }
+    function sendCartChecked() {
+      var boxes = document.querySelectorAll('.cart-check:checked');
+      var anns = [];
+      boxes.forEach(function(b) { var idx = parseInt(b.getAttribute('data-idx')); if (serverAnns[idx]) anns.push(serverAnns[idx]); });
+      if (anns.length === 0) { showToast('请先勾选要发送的批注'); return; }
+      sendAnnsToGroup(anns);
+    }
+    // Font size change
+    function changeFontSize(dir) {
+      var sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0) return;
+      var range = sel.getRangeAt(0);
+      if (range.collapsed) { showToast('请先选中文字'); return; }
+      // Get current font size
+      var el = range.startContainer.parentElement;
+      var cur = parseFloat(window.getComputedStyle(el).fontSize) || 15;
+      var next = Math.max(10, Math.min(48, cur + dir * 2));
+      var span = document.createElement('span');
+      span.style.fontSize = next + 'px';
+      range.surroundContents(span);
+      document.getElementById('previewPanel').focus();
+    }
+    // Send annotations to group chat via notify API
     function sendAnnToGroup(idx) {
       var a = serverAnns[idx];
       if (!a) return;
-      var msg = '💬 批注 by ' + a.author + ':\\n';
-      if (a.selectedText) msg += '> ' + a.selectedText.substring(0,100) + '\\n';
-      msg += a.content;
+      sendAnnsToGroup([a]);
+    }
+    function sendAnnsToGroup(anns) {
+      if (!anns.length) { showToast('请选择要发送的批注'); return; }
+      var msgs = anns.map(function(a) {
+        var m = '💬 ' + a.author + ': ';
+        if (a.selectedText) m += '「' + a.selectedText.substring(0,80) + '」 ';
+        m += a.content;
+        return m;
+      });
+      var msg = msgs.join('\\n\\n');
       fetch('/api/spaces/' + SPACE_ID + '/notify', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: msg })
       }).then(function(r) { return r.json(); }).then(function(d) {
-        if (d.success) showToast('📢 已加入通知队列，Bot 将自动推送到群');
+        if (d.success) showToast('📢 已发送 ' + anns.length + ' 条批注到通知队列');
         else showToast('❌ 发送失败: ' + (d.error || ''));
       }).catch(function() { showToast('❌ 发送失败'); });
     }
