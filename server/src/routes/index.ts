@@ -349,42 +349,61 @@ router.put("/spaces/:id/notifications/:notifId/sent", async (req, res) => {
 /** Send notification (used by "发到群" button) */
 router.post("/spaces/:id/notify", async (req, res) => {
   try {
-    const { message } = req.body;
-    if (!message) return res.status(400).json({ error: "message required" });
+    const { message, annotations, filePath } = req.body;
+    
+    // Build structured message from annotations
+    let finalMessage = message || "";
+    const baseUrl = `${req.protocol}://${req.get("host")}`;
+    if (annotations && Array.isArray(annotations) && annotations.length > 0) {
+      const parts = annotations.map((a: any, i: number) => {
+        const lines: string[] = [];
+        lines.push(`📋 批注任务 #${i + 1}`);
+        lines.push(`━━━━━━━━━━━━`);
+        lines.push(`📄 文件：${a.filePath || filePath || "未知"}`);
+        if (a.line > 0) lines.push(`📍 位置：第${a.line}行`);
+        lines.push(`📝 批注人：${a.author}`);
+        lines.push(`💬 要求：${a.content}`);
+        if (a.selectedText) lines.push(`📎 原文：「${a.selectedText}」`);
+        const fp = encodeURIComponent(a.filePath || filePath || "");
+        if (fp) lines.push(`🔗 查看：${baseUrl}/s/${req.params.id}/file/${fp}`);
+        lines.push(`━━━━━━━━━━━━`);
+        return lines.join("\n");
+      });
+      finalMessage = parts.join("\n\n");
+    }
+    
+    if (!finalMessage) return res.status(400).json({ error: "message or annotations required" });
     const user = await getCurrentUser(req);
     // Save to DB
-    await storage.addNotification(req.params.id, { type: "annotation", message, createdBy: user?.displayName || "web-user" });
+    await storage.addNotification(req.params.id, { type: "annotation", message: finalMessage, createdBy: user?.displayName || "web-user" });
     
     // Try direct push via channel API
     const space = (await storage.getSpace(req.params.id))!;
     let pushed = false;
+    
+    // Helper to send via DMWork bot API
+    const sendViaDMWork = async (apiUrl: string, token: string) => {
+      const resp = await fetch(`${apiUrl}/v1/bot/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ channel_id: space.groupId, channel_type: 2, payload: { type: 1, content: finalMessage } }),
+      });
+      return resp.ok;
+    };
+    
     // Check for bot bound to this space
     const notifyBotId = await storage.getSpaceNotifyBot(req.params.id);
     if (notifyBotId && space.groupId) {
       const botToken = await storage.getBotToken(notifyBotId);
       const bot = await storage.getBot(notifyBotId);
       if (botToken && bot) {
-        try {
-          const resp = await fetch(`${bot.apiUrl}/v1/bot/sendMessage`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${botToken}` },
-            body: JSON.stringify({ channel_id: space.groupId, channel_type: 2, payload: { type: 1, content: `📢 [Context 批注]\n${message}` } }),
-          });
-          if (resp.ok) pushed = true;
-        } catch (e) { console.error("[Notify] Bot push failed:", e); }
+        try { pushed = await sendViaDMWork(bot.apiUrl, botToken); } catch (e) { console.error("[Notify] Bot push failed:", e); }
       }
     }
     // Fallback to env var
     if (!pushed && space.channel === "dmwork" && space.groupId && process.env.DMWORK_BOT_TOKEN) {
-      try {
-        const apiUrl = process.env.DMWORK_API_URL || "https://im.deepminer.com.cn/api";
-        const resp = await fetch(`${apiUrl}/v1/bot/sendMessage`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.DMWORK_BOT_TOKEN}` },
-          body: JSON.stringify({ channel_id: space.groupId, channel_type: 2, payload: { type: 1, content: `📢 [Context 批注]\n${message}` } }),
-        });
-        if (resp.ok) pushed = true;
-      } catch (e) { console.error("[Notify] Env var push failed:", e); }
+      const apiUrl = process.env.DMWORK_API_URL || "https://im.deepminer.com.cn/api";
+      try { pushed = await sendViaDMWork(apiUrl, process.env.DMWORK_BOT_TOKEN); } catch (e) { console.error("[Notify] Env var push failed:", e); }
     }
     res.json({ success: true, pushed });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
@@ -2533,16 +2552,18 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
     }
     function sendAnnsToGroup(anns) {
       if (!anns.length) { showToast('请选择要发送的批注'); return; }
-      var msgs = anns.map(function(a) {
-        var m = '💬 ' + a.author + ': ';
-        if (a.selectedText) m += '「' + a.selectedText.substring(0,80) + '」 ';
-        m += a.content;
-        return m;
+      var annotations = anns.map(function(a) {
+        return {
+          author: a.author || 'unknown',
+          content: a.content || '',
+          selectedText: (a.selectedText || '').substring(0, 200),
+          line: a.line || 0,
+          filePath: FILE_PATH
+        };
       });
-      var msg = msgs.join('\\n\\n');
       fetch('/api/spaces/' + SPACE_ID + '/notify', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: msg })
+        body: JSON.stringify({ annotations: annotations, filePath: FILE_PATH })
       }).then(function(r) { return r.json(); }).then(function(d) {
         if (d.success && d.pushed) showToast('📢 已发送 ' + anns.length + ' 条批注到群');
         else if (d.success) showToast('📢 已保存，等待推送');
