@@ -151,12 +151,25 @@ export async function initDb(): Promise<void> {
 
     CREATE INDEX IF NOT EXISTS idx_user_spaces_user ON user_spaces(user_id);
     CREATE INDEX IF NOT EXISTS idx_user_spaces_space ON user_spaces(space_id);
+
+    CREATE TABLE IF NOT EXISTS bots (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      channel TEXT NOT NULL DEFAULT 'dmwork',
+      api_url TEXT NOT NULL,
+      encrypted_token TEXT NOT NULL,
+      registered_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_bots_channel ON bots(channel);
   `);
 
   // Migrations for existing databases
   const migrations = [
     "ALTER TABLE annotations ADD COLUMN assignee TEXT",
     "ALTER TABLE annotations ADD COLUMN selected_text TEXT",
+    "ALTER TABLE spaces ADD COLUMN notify_bot_id TEXT",
   ];
   for (const m of migrations) {
     try { await db.execute(m); console.log("[DB] Migration OK:", m); } catch (_e) { /* column exists */ }

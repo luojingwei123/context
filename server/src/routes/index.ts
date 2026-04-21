@@ -66,7 +66,7 @@ router.get("/health", (_req, res) => {
   res.json({
     status: "ok",
     service: "context-server",
-    version: "1.17",
+    version: "1.18",
     pluginVersion: "1.0.8",
     updateCommand: "clawhub update context-collab --force",
   });
@@ -103,6 +103,8 @@ router.post("/spaces", async (req, res) => {
     await storage.writeFile(space.id, "SPACE.md", getTemplate("SPACE.md", template, { spaceName: body.name, channel: body.channel }), body.createdBy);
     await storage.writeFile(space.id, "TEAM.md", getTemplate("TEAM.md", template, { spaceName: body.name }), body.createdBy);
     await storage.writeFile(space.id, "TASK.md", getTemplate("TASK.md", template, { spaceName: body.name }), body.createdBy);
+    // Auto-bind notify bot if provided
+    if (body.notifyBotId) await storage.setSpaceNotifyBot(space.id, body.notifyBotId);
     res.status(201).json({ space, existed: false });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
@@ -356,7 +358,24 @@ router.post("/spaces/:id/notify", async (req, res) => {
     // Try direct push via channel API
     const space = (await storage.getSpace(req.params.id))!;
     let pushed = false;
-    if (space.channel === "dmwork" && space.groupId && process.env.DMWORK_BOT_TOKEN) {
+    // Check for bot bound to this space
+    const notifyBotId = await storage.getSpaceNotifyBot(req.params.id);
+    if (notifyBotId && space.groupId) {
+      const botToken = await storage.getBotToken(notifyBotId);
+      const bot = await storage.getBot(notifyBotId);
+      if (botToken && bot) {
+        try {
+          const resp = await fetch(`${bot.apiUrl}/v1/bot/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${botToken}` },
+            body: JSON.stringify({ channel_id: space.groupId, channel_type: 2, payload: { type: 1, content: `📢 [Context 批注]\n${message}` } }),
+          });
+          if (resp.ok) pushed = true;
+        } catch (e) { console.error("[Notify] Bot push failed:", e); }
+      }
+    }
+    // Fallback to env var
+    if (!pushed && space.channel === "dmwork" && space.groupId && process.env.DMWORK_BOT_TOKEN) {
       try {
         const apiUrl = process.env.DMWORK_API_URL || "https://im.deepminer.com.cn/api";
         const resp = await fetch(`${apiUrl}/v1/bot/sendMessage`, {
@@ -365,9 +384,40 @@ router.post("/spaces/:id/notify", async (req, res) => {
           body: JSON.stringify({ channel_id: space.groupId, channel_type: 2, payload: { type: 1, content: `📢 [Context 批注]\n${message}` } }),
         });
         if (resp.ok) pushed = true;
-      } catch (e) { console.error("[Notify] DMWork push failed:", e); }
+      } catch (e) { console.error("[Notify] Env var push failed:", e); }
     }
     res.json({ success: true, pushed });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── Bot Registry API ───
+
+/** Register a bot */
+router.post("/bots/register", async (req, res) => {
+  try {
+    const { botId, name, channel, apiUrl, token } = req.body;
+    if (!botId || !name || !apiUrl || !token) return res.status(400).json({ error: "botId, name, apiUrl, token required" });
+    const bot = await storage.registerBot(botId, name, channel || "dmwork", apiUrl, token);
+    res.json({ success: true, bot: { id: bot.id, name: bot.name, channel: bot.channel } });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+/** List registered bots (no tokens exposed) */
+router.get("/bots", async (req, res) => {
+  try {
+    const channel = req.query.channel as string | undefined;
+    const bots = await storage.listBots(channel);
+    res.json({ bots });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+/** Set notify bot for a space */
+router.put("/spaces/:id/notify-bot", async (req, res) => {
+  try {
+    const { botId } = req.body;
+    if (!botId) return res.status(400).json({ error: "botId required" });
+    await storage.setSpaceNotifyBot(req.params.id, botId);
+    res.json({ success: true });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
@@ -678,6 +728,19 @@ router.get("/s", async (req: any, res) => {
               </select>
             </div>
           </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>📢 通知 Bot（可选）</label>
+              <select name="notifyBotId" id="notifyBotSelect"><option value="">-- 不使用 Bot 通知 --</option></select>
+              <small style="color:var(--text-muted);">选择一个 Bot，批注"发到群"时自动用它推送</small>
+            </div>
+          </div>
+          <script>
+            fetch('/api/bots').then(r=>r.json()).then(d=>{
+              var sel=document.getElementById('notifyBotSelect');
+              (d.bots||[]).forEach(function(b){var o=document.createElement('option');o.value=b.id;o.textContent=b.name+' ('+b.channel+')';sel.appendChild(o);});
+            });
+          </script>
           <button type="submit" class="btn btn-primary" style="align-self:flex-start;">🚀 创建空间</button>
         </form>
       </div>
@@ -730,6 +793,9 @@ router.post("/s/create", async (req: any, res) => {
     await storage.writeFile(space.id, "TEAM.md", getTemplate("TEAM.md", tmpl, { spaceName: name }), user.displayName);
     await storage.writeFile(space.id, "TASK.md", getTemplate("TASK.md", tmpl, { spaceName: name }), user.displayName);
     await storage.addUserSpace(user.id, space.id, "owner");
+    // Bind notify bot if selected
+    const { notifyBotId } = req.body;
+    if (notifyBotId) await storage.setSpaceNotifyBot(space.id, notifyBotId);
     res.redirect(`/s/${space.id}`);
   } catch (err: any) { res.status(500).send(err.message); }
 });

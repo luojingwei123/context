@@ -711,3 +711,66 @@ export async function isUserInSpace(userId: string, spaceId: string): Promise<bo
   });
   return result.rows.length > 0;
 }
+
+// ═══════════════════════════════════════
+// Bot Registry
+
+export interface Bot {
+  id: string;
+  name: string;
+  channel: string;
+  apiUrl: string;
+  encryptedToken: string;
+  registeredAt: string;
+  updatedAt: string;
+}
+
+export async function registerBot(id: string, name: string, channel: string, apiUrl: string, token: string): Promise<Bot> {
+  const db = getDb();
+  const now = new Date().toISOString();
+  // Simple base64 obfuscation for token (not true encryption, but better than plaintext)
+  const encryptedToken = Buffer.from(token).toString("base64");
+  await db.execute({
+    sql: `INSERT INTO bots (id, name, channel, api_url, encrypted_token, registered_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET name=?, api_url=?, encrypted_token=?, updated_at=?`,
+    args: [id, name, channel, apiUrl, encryptedToken, now, now, name, apiUrl, encryptedToken, now],
+  });
+  return { id, name, channel, apiUrl, encryptedToken, registeredAt: now, updatedAt: now };
+}
+
+export async function listBots(channel?: string): Promise<Array<{ id: string; name: string; channel: string }>> {
+  const db = getDb();
+  let sql = "SELECT id, name, channel FROM bots";
+  const args: any[] = [];
+  if (channel) { sql += " WHERE channel = ?"; args.push(channel); }
+  sql += " ORDER BY name";
+  const result = await db.execute({ sql, args });
+  return result.rows.map((r: any) => ({ id: r.id as string, name: r.name as string, channel: r.channel as string }));
+}
+
+export async function getBot(botId: string): Promise<Bot | null> {
+  const db = getDb();
+  const result = await db.execute({ sql: "SELECT * FROM bots WHERE id = ?", args: [botId] });
+  if (result.rows.length === 0) return null;
+  const r = result.rows[0] as any;
+  return { id: r.id, name: r.name, channel: r.channel, apiUrl: r.api_url, encryptedToken: r.encrypted_token, registeredAt: r.registered_at, updatedAt: r.updated_at };
+}
+
+export async function getBotToken(botId: string): Promise<string | null> {
+  const bot = await getBot(botId);
+  if (!bot) return null;
+  return Buffer.from(bot.encryptedToken, "base64").toString("utf-8");
+}
+
+export async function setSpaceNotifyBot(spaceId: string, botId: string): Promise<void> {
+  const db = getDb();
+  await db.execute({ sql: "UPDATE spaces SET notify_bot_id = ? WHERE id = ?", args: [botId, spaceId] });
+}
+
+export async function getSpaceNotifyBot(spaceId: string): Promise<string | null> {
+  const db = getDb();
+  const result = await db.execute({ sql: "SELECT notify_bot_id FROM spaces WHERE id = ?", args: [spaceId] });
+  if (result.rows.length === 0) return null;
+  return (result.rows[0] as any).notify_bot_id || null;
+}
