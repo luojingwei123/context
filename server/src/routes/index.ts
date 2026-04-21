@@ -1705,8 +1705,11 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
             <button id="regionBtn" onclick="toggleRegionMode()" class="btn-small" style="font-size:11px;" title="框选批注">🖱️ 框选</button>
           </div>
         </div>
-        <div id="previewPanel" class="right-panel" style="flex:1;overflow:auto;padding:20px 24px;position:relative;padding-right:24px;">
-          ${mdToHtml(file.content)}
+        <div style="display:flex;flex:1;overflow:hidden;">
+          <div id="previewPanel" class="right-panel" style="flex:1;overflow:auto;padding:20px 24px;position:relative;">
+            ${mdToHtml(file.content)}
+          </div>
+          <div id="annSidebar" class="ann-sidebar"><div style="padding:10px 12px;font-size:12px;font-weight:600;color:#6b7280;border-bottom:1px solid #e5e7eb;">💬 评论</div><div id="annCards"></div></div>
         </div>
       </div>
     </div>`;
@@ -1726,8 +1729,11 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
             <button id="regionBtn" onclick="toggleRegionMode()" class="btn-small" style="font-size:11px;">🖱️ 框选</button>
           </div>
         </div>
-        <div id="previewPanel" class="right-panel" style="flex:1;overflow:auto;position:relative;">
-          <table class="code-table">${numberedContent}</table>
+        <div style="display:flex;flex:1;overflow:hidden;">
+          <div id="previewPanel" class="right-panel" style="flex:1;overflow:auto;position:relative;">
+            <table class="code-table">${numberedContent}</table>
+          </div>
+          <div id="annSidebar" class="ann-sidebar"><div style="padding:10px 12px;font-size:12px;font-weight:600;color:#6b7280;border-bottom:1px solid #e5e7eb;">💬 评论</div><div id="annCards"></div></div>
         </div>
       </div>
     </div>`;
@@ -2167,6 +2173,7 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
     function onRegionStart(e) {
       if (e.button !== 0) return;
       if (e.target.closest('#annInputBox,#regionInputBox,button,textarea,input,.ann-sidebar-inner,#regionModeBar,#floatToolbar,#refModal')) return;
+      if (!e.target.closest('#previewPanel')) return;
       regionStart = { x: e.clientX, y: e.clientY };
       regionRect = null;
       document.body.style.userSelect = 'none';
