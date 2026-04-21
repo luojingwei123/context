@@ -501,3 +501,105 @@ function guessMimeType(filePath: string): string {
   };
   return map[ext] || "application/octet-stream";
 }
+
+// ═══════════════════════════════════════
+// Users & Auth
+
+export interface User {
+  id: string;
+  username: string;
+  displayName: string;
+  passwordHash: string;
+  avatar?: string;
+  role: string;
+  createdAt: string;
+  lastLoginAt?: string;
+}
+
+export async function createUser(username: string, displayName: string, passwordHash: string): Promise<User> {
+  const db = getDb();
+  const id = nanoid(12);
+  const now = new Date().toISOString();
+  await db.execute({
+    sql: "INSERT INTO users (id, username, display_name, password_hash, role, created_at) VALUES (?, ?, ?, ?, 'user', ?)",
+    args: [id, username, displayName, passwordHash, now],
+  });
+  return { id, username, displayName, passwordHash, role: "user", createdAt: now };
+}
+
+export async function getUserByUsername(username: string): Promise<User | null> {
+  const db = getDb();
+  const result = await db.execute({ sql: "SELECT * FROM users WHERE username = ?", args: [username] });
+  if (result.rows.length === 0) return null;
+  return rowToUser(result.rows[0]);
+}
+
+export async function getUserById(id: string): Promise<User | null> {
+  const db = getDb();
+  const result = await db.execute({ sql: "SELECT * FROM users WHERE id = ?", args: [id] });
+  if (result.rows.length === 0) return null;
+  return rowToUser(result.rows[0]);
+}
+
+export async function updateUserLogin(userId: string): Promise<void> {
+  const db = getDb();
+  await db.execute({ sql: "UPDATE users SET last_login_at = ? WHERE id = ?", args: [new Date().toISOString(), userId] });
+}
+
+export async function getUserCount(): Promise<number> {
+  const db = getDb();
+  const result = await db.execute("SELECT COUNT(*) as count FROM users");
+  return (result.rows[0].count as number) || 0;
+}
+
+function rowToUser(row: any): User {
+  return {
+    id: row.id as string,
+    username: row.username as string,
+    displayName: row.display_name as string,
+    passwordHash: row.password_hash as string,
+    avatar: row.avatar as string | undefined,
+    role: row.role as string,
+    createdAt: row.created_at as string,
+    lastLoginAt: row.last_login_at as string | undefined,
+  };
+}
+
+// ── Session tokens ──
+
+export async function createSession(userId: string, expiresInDays = 30): Promise<string> {
+  const db = getDb();
+  const token = nanoid(32);
+  const now = new Date();
+  const expires = new Date(now.getTime() + expiresInDays * 86400000);
+  await db.execute({
+    sql: "INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+    args: [token, userId, now.toISOString(), expires.toISOString()],
+  });
+  return token;
+}
+
+export async function getSessionUser(token: string): Promise<User | null> {
+  const db = getDb();
+  const result = await db.execute({
+    sql: "SELECT user_id, expires_at FROM sessions WHERE token = ?",
+    args: [token],
+  });
+  if (result.rows.length === 0) return null;
+  const row = result.rows[0];
+  if (new Date(row.expires_at as string) < new Date()) {
+    await db.execute({ sql: "DELETE FROM sessions WHERE token = ?", args: [token] });
+    return null;
+  }
+  return getUserById(row.user_id as string);
+}
+
+export async function deleteSession(token: string): Promise<void> {
+  const db = getDb();
+  await db.execute({ sql: "DELETE FROM sessions WHERE token = ?", args: [token] });
+}
+
+export async function cleanExpiredSessions(): Promise<void> {
+  const db = getDb();
+  await db.execute({ sql: "DELETE FROM sessions WHERE expires_at < ?", args: [new Date().toISOString()] });
+}

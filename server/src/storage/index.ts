@@ -33,4 +33,14 @@ export {
   getPendingNotifications,
   markNotificationSent,
   listSpaces,
+  // Auth
+  createUser,
+  getUserByUsername,
+  getUserById,
+  updateUserLogin,
+  getUserCount,
+  createSession,
+  getSessionUser,
+  deleteSession,
+  cleanExpiredSessions,
 } from "./db-storage.js";

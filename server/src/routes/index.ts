@@ -8,6 +8,7 @@
  */
 
 import { Router } from "express";
+import crypto from "crypto";
 import * as storage from "../storage/index.js";
 import { getTemplate } from "../templates/index.js";
 import * as menuRegistry from "../menu/index.js";
@@ -22,6 +23,40 @@ function getBaseUrl(req: any): string {
   return `${proto}://${host}`;
 }
 
+// ── Password hashing (scrypt, no deps) ──
+function hashPassword(password: string): string {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const hash = crypto.scryptSync(password, salt, 64).toString("hex");
+  return `${salt}:${hash}`;
+}
+function verifyPassword(password: string, stored: string): boolean {
+  const [salt, hash] = stored.split(":");
+  const check = crypto.scryptSync(password, salt, 64).toString("hex");
+  return hash === check;
+}
+
+// ── Session cookie helpers ──
+function getSessionToken(req: any): string | null {
+  const cookie = req.headers.cookie || "";
+  const match = cookie.match(/ctx_session=([^;]+)/);
+  return match ? match[1] : null;
+}
+function setSessionCookie(res: any, token: string) {
+  res.setHeader("Set-Cookie", `ctx_session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30 * 86400}`);
+}
+function clearSessionCookie(res: any) {
+  res.setHeader("Set-Cookie", `ctx_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+}
+
+// ── Get current user from session (returns null if not logged in) ──
+async function getCurrentUser(req: any): Promise<{ id: string; username: string; displayName: string; role: string } | null> {
+  const token = getSessionToken(req);
+  if (!token) return null;
+  const user = await storage.getSessionUser(token);
+  if (!user) return null;
+  return { id: user.id, username: user.username, displayName: user.displayName, role: user.role };
+}
+
 // ════════════════════════════════════════════════════════════════
 // API Routes (JSON，给 Agent / Plugin 调用)
 // ════════════════════════════════════════════════════════════════
@@ -30,7 +65,7 @@ router.get("/health", (_req, res) => {
   res.json({
     status: "ok",
     service: "context-server",
-    version: "1.5.0",
+    version: "1.06",
     pluginVersion: "1.0.8",
     updateCommand: "clawhub update context-collab --force",
   });
@@ -341,7 +376,7 @@ router.get("/ctx/:spaceId", async (req, res) => {
     if (!space) return res.status(404).send(wantsHtml ? notFoundPage("Space not found") : "Space not found");
 
     if (wantsHtml) {
-      return res.type("text/html").send(await renderSpacePage(spaceId, space));
+      const ctxUser = await getCurrentUser(req); return res.type("text/html").send(await renderSpacePage(spaceId, space, ctxUser));
     }
     // API response (for agents without plugin)
     const files = await storage.listFiles(spaceId);
@@ -372,7 +407,7 @@ router.get("/ctx/:spaceId/*", async (req, res) => {
     if (wantsHtml) {
       // Human browser → rendered page with annotations
       const annotations = await storage.getAnnotations(spaceId, filePath);
-      return res.type("text/html").send(renderFilePage(space, file, spaceId, filePath, annotations, req));
+      const ctxUser2 = await getCurrentUser(req); return res.type("text/html").send(renderFilePage(space, file, spaceId, filePath, annotations, req, ctxUser2));
     }
 
     if (hasPlugin) {
@@ -399,16 +434,136 @@ router.get("/ctx/:spaceId/*", async (req, res) => {
 
 
 // ════════════════════════════════════════════════════════════════
+// Auth Routes (登录 / 注册 / 登出)
+// ════════════════════════════════════════════════════════════════
+
+/** Login page */
+router.get("/auth/login", async (req, res) => {
+  const user = await getCurrentUser(req);
+  if (user) return res.redirect("/s");
+  const error = req.query.error as string || "";
+  const success = req.query.success as string || "";
+  res.type("text/html").send(authPage("登录", `
+    <div class="auth-card">
+      <div class="auth-logo">📦</div>
+      <h1 class="auth-title">欢迎回来</h1>
+      <p class="auth-subtitle">登录你的 Context 账户</p>
+      ${error ? `<div class="auth-error">${esc(error)}</div>` : ""}
+      ${success ? `<div class="auth-success">${esc(success)}</div>` : ""}
+      <form method="POST" action="/auth/login" class="auth-form">
+        <div class="form-group">
+          <label for="username">用户名</label>
+          <input id="username" name="username" type="text" required autocomplete="username" placeholder="输入用户名">
+        </div>
+        <div class="form-group">
+          <label for="password">密码</label>
+          <input id="password" name="password" type="password" required autocomplete="current-password" placeholder="输入密码">
+        </div>
+        <button type="submit" class="auth-btn">登录</button>
+      </form>
+      <p class="auth-link">还没有账户？ <a href="/auth/register">立即注册</a></p>
+    </div>
+  `));
+});
+
+/** Login handler */
+router.post("/auth/login", async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) return res.redirect("/auth/login?error=请填写用户名和密码");
+    const user = await storage.getUserByUsername(username.trim().toLowerCase());
+    if (!user || !verifyPassword(password, user.passwordHash)) {
+      return res.redirect("/auth/login?error=用户名或密码错误");
+    }
+    const token = await storage.createSession(user.id);
+    await storage.updateUserLogin(user.id);
+    setSessionCookie(res, token);
+    res.redirect("/s");
+  } catch (err: any) { res.redirect("/auth/login?error=" + encodeURIComponent(err.message)); }
+});
+
+/** Register page */
+router.get("/auth/register", async (req, res) => {
+  const user = await getCurrentUser(req);
+  if (user) return res.redirect("/s");
+  const error = req.query.error as string || "";
+  res.type("text/html").send(authPage("注册", `
+    <div class="auth-card">
+      <div class="auth-logo">📦</div>
+      <h1 class="auth-title">创建账户</h1>
+      <p class="auth-subtitle">加入 Context 协作平台</p>
+      ${error ? `<div class="auth-error">${esc(error)}</div>` : ""}
+      <form method="POST" action="/auth/register" class="auth-form">
+        <div class="form-group">
+          <label for="username">用户名</label>
+          <input id="username" name="username" type="text" required autocomplete="username" placeholder="字母、数字、下划线" pattern="[a-zA-Z0-9_]{2,20}">
+        </div>
+        <div class="form-group">
+          <label for="displayName">显示名称</label>
+          <input id="displayName" name="displayName" type="text" required placeholder="你的名字">
+        </div>
+        <div class="form-group">
+          <label for="password">密码</label>
+          <input id="password" name="password" type="password" required autocomplete="new-password" placeholder="至少 6 位" minlength="6">
+        </div>
+        <div class="form-group">
+          <label for="password2">确认密码</label>
+          <input id="password2" name="password2" type="password" required autocomplete="new-password" placeholder="再次输入密码">
+        </div>
+        <button type="submit" class="auth-btn">注册</button>
+      </form>
+      <p class="auth-link">已有账户？ <a href="/auth/login">去登录</a></p>
+    </div>
+  `));
+});
+
+/** Register handler */
+router.post("/auth/register", async (req, res) => {
+  try {
+    const { username, displayName, password, password2 } = req.body;
+    if (!username || !displayName || !password) return res.redirect("/auth/register?error=请填写所有字段");
+    if (password.length < 6) return res.redirect("/auth/register?error=密码至少 6 位");
+    if (password !== password2) return res.redirect("/auth/register?error=两次密码不一致");
+    const cleanUsername = username.trim().toLowerCase();
+    if (!/^[a-zA-Z0-9_]{2,20}$/.test(cleanUsername)) return res.redirect("/auth/register?error=用户名只能包含字母、数字和下划线（2-20位）");
+    const existing = await storage.getUserByUsername(cleanUsername);
+    if (existing) return res.redirect("/auth/register?error=用户名已被使用");
+    const hash = hashPassword(password);
+    const user = await storage.createUser(cleanUsername, displayName.trim(), hash);
+    const token = await storage.createSession(user.id);
+    setSessionCookie(res, token);
+    res.redirect("/s");
+  } catch (err: any) { res.redirect("/auth/register?error=" + encodeURIComponent(err.message)); }
+});
+
+/** Logout */
+router.get("/auth/logout", async (req, res) => {
+  const token = getSessionToken(req);
+  if (token) await storage.deleteSession(token);
+  clearSessionCookie(res);
+  res.redirect("/auth/login");
+});
+
+/** API: get current user */
+router.get("/auth/me", async (req, res) => {
+  const user = await getCurrentUser(req);
+  if (!user) return res.status(401).json({ error: "Not logged in" });
+  res.json({ user });
+});
+
+// ════════════════════════════════════════════════════════════════
 // /s/* — Web UI（人类浏览器完整功能）
 // ════════════════════════════════════════════════════════════════
 
 /** Home: list all spaces */
-router.get("/s", async (_req, res) => {
+router.get("/s", async (req, res) => {
   try {
-    res.type("text/html").send(page("Context", `
+    const user = await getCurrentUser(req);
+    res.type("text/html").send(page("Context", user, `
       <div class="hero">
+        <div class="hero-glow"></div>
         <h1>📦 Context</h1>
-        <p>多 Agent 协作协议引擎 — 共享空间、自动注入上下文、实时批注与任务管理</p>
+        <p class="hero-desc">多 Agent 协作协议引擎 — 共享空间、自动注入上下文、实时批注与任务管理</p>
         <div class="hero-features">
           <div class="feature"><div class="feature-icon">🤖</div><div class="feature-label">多 Agent 协作</div></div>
           <div class="feature"><div class="feature-icon">📄</div><div class="feature-label">共享文件空间</div></div>
@@ -417,32 +572,33 @@ router.get("/s", async (_req, res) => {
         </div>
       </div>
 
-      <div class="card fade-in">
+      <div class="card glass fade-in">
         <div class="card-header">
-          <h2 style="margin:0;">🔗 进入已有空间</h2>
+          <h2 style="margin:0;">🔗 进入空间</h2>
         </div>
         <form onsubmit="var v=document.getElementById('sid').value.trim();if(v)location.href='/s/'+v;return false;" style="display:flex;gap:8px;">
           <input id="sid" placeholder="输入 Space ID" style="flex:1;" required>
-          <button type="submit" class="btn btn-primary">进入</button>
+          <button type="submit" class="btn btn-primary">进入 →</button>
         </form>
       </div>
 
-      <div class="card fade-in">
+      ${user ? `
+      <div class="card glass fade-in">
         <div class="card-header">
           <h2 style="margin:0;">➕ 创建新空间</h2>
         </div>
-        <form method="POST" action="/s/create" style="display:flex;flex-direction:column;gap:16px;">
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-            <div><label>空间名称</label><br><input name="name" required style="width:100%;margin-top:4px;" placeholder="My Project"></div>
-            <div><label>创建者</label><br><input name="createdBy" value="web-user" style="width:100%;margin-top:4px;"></div>
+        <form method="POST" action="/s/create" class="form-grid">
+          <div class="form-row">
+            <div class="form-group"><label>空间名称</label><input name="name" required placeholder="My Project"></div>
+            <div class="form-group"><label>创建者</label><input name="createdBy" value="${esc(user.displayName)}" readonly></div>
           </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-            <div><label>Channel</label><br><select name="channel" style="width:100%;margin-top:4px;"><option>discord</option><option>dmwork</option><option>telegram</option><option>slack</option><option>webchat</option></select></div>
-            <div><label>Group ID</label><br><input name="groupId" required style="width:100%;margin-top:4px;" placeholder="群 / 服务器 ID"></div>
+          <div class="form-row">
+            <div class="form-group"><label>Channel</label><select name="channel"><option>discord</option><option>dmwork</option><option>telegram</option><option>slack</option><option>webchat</option></select></div>
+            <div class="form-group"><label>Group ID</label><input name="groupId" required placeholder="群 / 服务器 ID"></div>
           </div>
-          <div>
-            <label>模板</label><br>
-            <select name="template" style="width:100%;margin-top:4px;">
+          <div class="form-group">
+            <label>模板</label>
+            <select name="template">
               <option value="software-dev">🛠 软件开发</option>
               <option value="content">📝 内容创作</option>
               <option value="research">🔬 研究项目</option>
@@ -452,10 +608,15 @@ router.get("/s", async (_req, res) => {
           <button type="submit" class="btn btn-primary" style="align-self:flex-start;">🚀 创建空间</button>
         </form>
       </div>
+      ` : `
+      <div class="card glass fade-in" style="text-align:center;padding:40px;">
+        <p style="color:var(--text-secondary);margin-bottom:16px;">登录后可创建新空间</p>
+        <a href="/auth/login" class="btn btn-primary">登录 / 注册</a>
+      </div>
+      `}
 
       <div style="text-align:center;padding:24px 0;color:var(--text-muted);font-size:13px;">
-        <p>每个空间有独立地址：<code>/s/{spaceId}</code></p>
-        <p style="margin-top:4px;">由 Agent 或斜杠命令创建后会返回专属链接</p>
+        <p>Powered by <b>Context</b> — Open-source multi-agent collaboration protocol</p>
       </div>
     `));
   } catch (err: any) { res.status(500).send(err.message); }
@@ -497,7 +658,7 @@ router.get("/s/:id", async (req, res) => {
   try {
     const space = await storage.getSpace(req.params.id);
     if (!space) return res.status(404).send(notFoundPage("Space not found"));
-    res.type("text/html").send(await renderSpacePage(req.params.id, space));
+    const user = await getCurrentUser(req); res.type("text/html").send(await renderSpacePage(req.params.id, space, user));
   } catch (err: any) { res.status(500).send(err.message); }
 });
 
@@ -510,7 +671,7 @@ router.get("/s/:id/view/*", async (req, res) => {
     const file = await storage.getFile(req.params.id, filePath);
     if (!file) return res.status(404).send(notFoundPage(`File not found: ${filePath}`));
     const annotations = await storage.getAnnotations(req.params.id, filePath);
-    let html = renderFilePage(space, file, req.params.id, filePath, annotations, req);
+    const user = await getCurrentUser(req); let html = renderFilePage(space, file, req.params.id, filePath, annotations, req, user);
     if (req.query.sent === "1") {
       html = html.replace("</h1>", '</h1><div style="background:#dafbe1;border:1px solid #1a7f37;border-radius:6px;padding:10px 14px;margin:8px 0;color:#1a7f37;">✅ 已发送到群聊</div>');
     }
@@ -526,7 +687,8 @@ router.get("/s/:id/edit/*", async (req, res) => {
     if (!space) return res.status(404).send(notFoundPage("Space not found"));
     const file = await storage.getFile(req.params.id, filePath);
     const content = file?.content || "";
-    res.type("text/html").send(page(`编辑 ${filePath}`, `
+    const user = await getCurrentUser(req);
+    res.type("text/html").send(page(`编辑 ${filePath}`, user, `
       <div class="breadcrumb"><a href="/s/${req.params.id}">← ${esc(space.name)}</a> <span>/</span> 编辑: <b>${esc(filePath)}</b></div>
       <div class="card">
         <div class="card-header"><h2 style="margin:0;">✏️ 编辑文件</h2></div>
@@ -560,7 +722,8 @@ router.get("/s/:id/new", async (req, res) => {
   try {
     const space = await storage.getSpace(req.params.id);
     if (!space) return res.status(404).send(notFoundPage("Space not found"));
-    res.type("text/html").send(page("新建文件", `
+    const user = await getCurrentUser(req);
+    res.type("text/html").send(page("新建文件", user, `
       <div class="breadcrumb"><a href="/s/${req.params.id}">← ${esc(space.name)}</a> <span>/</span> 新建文件</div>
       <div class="card">
         <div class="card-header"><h2 style="margin:0;">📄 新建文件</h2></div>
@@ -754,7 +917,8 @@ router.get("/s/:id/search", async (req, res) => {
       </div>`;
     }).join("");
 
-    res.type("text/html").send(page(`搜索: ${q}`, `
+    const user = await getCurrentUser(req);
+    res.type("text/html").send(page(`搜索: ${q}`, user, `
       <div class="breadcrumb"><a href="/s/${req.params.id}">← ${esc(space.name)}</a> <span>/</span> 搜索</div>
       <div class="card">
         <h2 style="margin:0 0 8px;">🔍 搜索结果</h2>
@@ -818,7 +982,8 @@ router.get("/s/:id/annotations", async (req, res) => {
         `).join("") + "</details>"
       : "";
 
-    res.type("text/html").send(page("批注清单", `
+    const user = await getCurrentUser(req);
+    res.type("text/html").send(page("批注清单", user, `
       <div class="breadcrumb"><a href="/s/${req.params.id}">← ${esc(space.name)}</a> <span>/</span> 批注清单</div>
       <div class="card">
         <div class="card-header"><h2 style="margin:0;">💬 批注清单</h2><span class="badge badge-channel">待处理 ${open.length} · 已处理 ${resolved.length}</span></div>
@@ -850,7 +1015,8 @@ router.get("/s/:id/history/*", async (req, res) => {
       `).join("")
       : "<tr><td colspan='5' style='text-align:center;color:var(--text-muted);padding:24px;'>暂无历史版本</td></tr>";
 
-    res.type("text/html").send(page(`历史 — ${filePath}`, `
+    const user = await getCurrentUser(req);
+    res.type("text/html").send(page(`历史 — ${filePath}`, user, `
       <div class="breadcrumb"><a href="/s/${req.params.id}">← ${esc(space.name)}</a> <span>/</span> <a href="/s/${req.params.id}/view/${filePath}">${esc(filePath)}</a> <span>/</span> 版本历史</div>
       <div class="card">
         <div class="card-header">
@@ -878,7 +1044,8 @@ router.get("/s/:id/version/:version/*", async (req, res) => {
     const data = await storage.getFileVersion(req.params.id, filePath, version);
     if (!data) return res.status(404).send(notFoundPage(`Version v${version} not found`));
 
-    res.type("text/html").send(page(`v${version} — ${filePath}`, `
+    const user = await getCurrentUser(req);
+    res.type("text/html").send(page(`v${version} — ${filePath}`, user, `
       <div class="breadcrumb">
         <a href="/s/${req.params.id}">${esc(space.name)}</a> <span>/</span>
         <a href="/s/${req.params.id}/view/${filePath}">${esc(filePath)}</a> <span>/</span>
@@ -904,221 +1071,260 @@ router.get("/s/:id/version/:version/*", async (req, res) => {
 // ════════════════════════════════════════════════════════════════
 // HTML Rendering Helpers
 // ════════════════════════════════════════════════════════════════
+// HTML Rendering Helpers — Apple-inspired Design
+// ════════════════════════════════════════════════════════════════
 
 const CSS = `
   :root {
-    --primary: #2563eb;
-    --primary-hover: #1d4ed8;
-    --primary-light: #eff6ff;
-    --success: #16a34a;
-    --success-light: #dcfce7;
-    --danger: #dc2626;
-    --danger-light: #fef2f2;
-    --warning: #d97706;
-    --warning-light: #fffbeb;
-    --bg: #f8fafc;
-    --bg-card: #ffffff;
-    --bg-hover: #f1f5f9;
-    --bg-code: #f1f5f9;
-    --border: #e2e8f0;
-    --border-strong: #cbd5e1;
-    --text: #0f172a;
-    --text-secondary: #64748b;
-    --text-muted: #94a3b8;
-    --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04);
-    --shadow-md: 0 4px 6px rgba(0,0,0,.07), 0 2px 4px rgba(0,0,0,.04);
-    --shadow-lg: 0 10px 15px -3px rgba(0,0,0,.08), 0 4px 6px -4px rgba(0,0,0,.04);
-    --radius: 8px;
-    --radius-lg: 12px;
+    --primary: #0071e3;
+    --primary-hover: #0077ED;
+    --primary-light: rgba(0,113,227,.08);
+    --success: #30d158;
+    --success-light: rgba(48,209,88,.1);
+    --danger: #ff453a;
+    --danger-light: rgba(255,69,58,.1);
+    --warning: #ff9f0a;
+    --warning-light: rgba(255,159,10,.1);
+    --bg: #f5f5f7;
+    --bg-card: rgba(255,255,255,.72);
+    --bg-hover: rgba(0,0,0,.03);
+    --bg-code: #f5f5f7;
+    --border: rgba(0,0,0,.08);
+    --border-strong: rgba(0,0,0,.12);
+    --text: #1d1d1f;
+    --text-secondary: #6e6e73;
+    --text-muted: #aeaeb2;
+    --shadow: 0 1px 3px rgba(0,0,0,.06);
+    --shadow-md: 0 4px 12px rgba(0,0,0,.08);
+    --shadow-lg: 0 8px 30px rgba(0,0,0,.12);
+    --radius: 12px;
+    --radius-lg: 16px;
+    --radius-xl: 20px;
+    --blur: blur(20px) saturate(180%);
     color-scheme: light dark;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --primary: #60a5fa;
-      --primary-hover: #93bbfd;
-      --primary-light: #1e293b;
-      --success: #4ade80;
-      --success-light: #052e16;
-      --danger: #f87171;
-      --danger-light: #450a0a;
-      --warning: #fbbf24;
-      --warning-light: #451a03;
-      --bg: #0f172a;
-      --bg-card: #1e293b;
-      --bg-hover: #334155;
-      --bg-code: #1e293b;
-      --border: #334155;
-      --border-strong: #475569;
-      --text: #f1f5f9;
-      --text-secondary: #94a3b8;
-      --text-muted: #64748b;
+      --primary: #0a84ff;
+      --primary-hover: #409cff;
+      --primary-light: rgba(10,132,255,.15);
+      --success: #30d158;
+      --success-light: rgba(48,209,88,.15);
+      --danger: #ff453a;
+      --danger-light: rgba(255,69,58,.15);
+      --warning: #ff9f0a;
+      --warning-light: rgba(255,159,10,.15);
+      --bg: #000000;
+      --bg-card: rgba(28,28,30,.72);
+      --bg-hover: rgba(255,255,255,.05);
+      --bg-code: rgba(28,28,30,.9);
+      --border: rgba(255,255,255,.08);
+      --border-strong: rgba(255,255,255,.12);
+      --text: #f5f5f7;
+      --text-secondary: #a1a1a6;
+      --text-muted: #636366;
       --shadow: 0 1px 3px rgba(0,0,0,.3);
-      --shadow-md: 0 4px 6px rgba(0,0,0,.3);
-      --shadow-lg: 0 10px 15px rgba(0,0,0,.3);
+      --shadow-md: 0 4px 12px rgba(0,0,0,.4);
+      --shadow-lg: 0 8px 30px rgba(0,0,0,.5);
     }
-    .badge-agent { background: #1e3a5f; color: #93c5fd; }
-    .badge-human { background: #052e16; color: #86efac; }
-    .badge-creator { background: #451a03; color: #fcd34d; }
-    .annotation, .annotation-card { background: var(--warning-light); border-color: #92400e; }
-    .annotation.resolved, .annotation-card.resolved { background: var(--bg-code); border-color: var(--border); }
   }
   * { box-sizing: border-box; margin: 0; }
-  body { font-family: -apple-system, system-ui, "Segoe UI", "Noto Sans SC", sans-serif; margin: 0; padding: 0; line-height: 1.6; color: var(--text); background: var(--bg); -webkit-font-smoothing: antialiased; }
-  .container { max-width: 960px; margin: 0 auto; padding: 24px 20px; }
-  .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px; margin-bottom: 20px; box-shadow: var(--shadow); }
-  .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
-  .card-header h2 { margin: 0; font-size: 18px; }
-  h1 { font-size: 24px; font-weight: 700; margin: 0 0 8px; color: var(--text); }
-  h2 { font-size: 18px; font-weight: 600; color: var(--text); margin-top: 24px; }
-  h3 { font-size: 15px; font-weight: 600; color: var(--text); }
-  a { color: var(--primary); text-decoration: none; transition: color .15s; }
-  a:hover { text-decoration: underline; }
+  body { font-family: -apple-system, "SF Pro Display", "SF Pro Text", system-ui, "Helvetica Neue", "Noto Sans SC", sans-serif; margin: 0; padding: 0; line-height: 1.47059; color: var(--text); background: var(--bg); -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; letter-spacing: -.022em; }
+  .container { max-width: 980px; margin: 0 auto; padding: 28px 22px; }
+  .card { background: var(--bg-card); backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px; margin-bottom: 20px; box-shadow: var(--shadow); transition: box-shadow .3s, transform .3s; }
+  .card:hover { box-shadow: var(--shadow-md); }
+  .card.glass { background: var(--bg-card); backdrop-filter: var(--blur); }
+  .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+  .card-header h2 { margin: 0; font-size: 17px; font-weight: 600; }
+  h1 { font-size: 28px; font-weight: 700; margin: 0 0 8px; color: var(--text); letter-spacing: -.025em; }
+  h2 { font-size: 22px; font-weight: 600; color: var(--text); margin-top: 24px; letter-spacing: -.02em; }
+  h3 { font-size: 17px; font-weight: 600; color: var(--text); }
+  a { color: var(--primary); text-decoration: none; transition: opacity .2s; }
+  a:hover { opacity: .75; }
   hr { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
-  blockquote { border-left: 3px solid var(--primary); padding: 8px 16px; margin: 12px 0; background: var(--bg-code); border-radius: 0 var(--radius) var(--radius) 0; color: var(--text-secondary); }
-  pre { background: var(--bg-code); padding: 14px; border-radius: var(--radius); overflow-x: auto; border: 1px solid var(--border); font-size: 13px; line-height: 1.5; }
-  code { background: var(--bg-code); padding: 2px 6px; border-radius: 4px; font-size: 0.88em; font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace; }
+  blockquote { border-left: 3px solid var(--primary); padding: 10px 16px; margin: 12px 0; background: var(--primary-light); border-radius: 0 var(--radius) var(--radius) 0; color: var(--text-secondary); font-size: 15px; }
+  pre { background: var(--bg-code); padding: 16px; border-radius: var(--radius); overflow-x: auto; border: 1px solid var(--border); font-size: 13px; line-height: 1.6; }
+  code { background: var(--bg-code); padding: 2px 7px; border-radius: 6px; font-size: .85em; font-family: "SF Mono", "Fira Code", "Cascadia Code", Menlo, monospace; }
   pre code { background: none; padding: 0; }
-  /* ── Form Controls ── */
-  input[type="text"], input[type="number"], input[type="email"], input[type="url"], input[type="search"],
+  /* ── Form Controls (Apple-style) ── */
+  input[type="text"], input[type="number"], input[type="email"], input[type="url"], input[type="search"], input[type="password"],
   input:not([type]), textarea, select {
-    font-family: inherit; font-size: 14px; line-height: 1.5;
-    padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius);
-    background: var(--bg-card); color: var(--text); transition: border-color .15s, box-shadow .15s;
-    outline: none; width: auto;
+    font-family: inherit; font-size: 15px; line-height: 1.47;
+    padding: 10px 14px; border: 1px solid var(--border-strong); border-radius: var(--radius);
+    background: var(--bg-card); color: var(--text); transition: all .2s;
+    outline: none; width: 100%;
+    backdrop-filter: var(--blur);
   }
   input:focus, textarea:focus, select:focus {
-    border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,.12);
+    border-color: var(--primary); box-shadow: 0 0 0 4px var(--primary-light);
   }
-  textarea { resize: vertical; }
-  select { cursor: pointer; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2364748b' d='M2 4l4 4 4-4'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; padding-right: 30px; }
-  label { font-size: 14px; color: var(--text-secondary); display: inline-flex; align-items: center; gap: 6px; }
+  textarea { resize: vertical; min-height: 80px; }
+  select { cursor: pointer; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236e6e73' d='M2 4l4 4 4-4'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 34px; }
+  label { font-size: 13px; font-weight: 500; color: var(--text-secondary); display: block; margin-bottom: 6px; text-transform: uppercase; letter-spacing: .02em; }
+  .form-grid { display: flex; flex-direction: column; gap: 18px; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .form-group { display: flex; flex-direction: column; }
+  .form-group input, .form-group select, .form-group textarea { margin-top: 0; }
   /* ── Tables ── */
-  table { width: 100%; border-collapse: collapse; font-size: 14px; }
-  th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); }
-  th { font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-secondary); background: var(--bg-code); }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; }
+  th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--border); }
+  th { font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); }
   tr:last-child td { border-bottom: none; }
+  tbody tr { transition: background .15s; }
   tbody tr:hover { background: var(--bg-hover); }
-  .table-wrap { border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
+  .table-wrap { border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; background: var(--bg-card); backdrop-filter: var(--blur); }
   /* ── Components ── */
-  .breadcrumb { color: var(--text-secondary); margin-bottom: 16px; font-size: 13px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-  .breadcrumb a { color: var(--primary); font-weight: 500; }
-  .breadcrumb span { color: var(--text-muted); }
-  .meta { background: var(--bg-code); padding: 12px 16px; border-radius: var(--radius); margin: 12px 0; border: 1px solid var(--border); font-size: 13px; color: var(--text-secondary); line-height: 1.8; }
-  .meta b { color: var(--text); }
-  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; line-height: 1.5; }
-  .badge-agent { background: #dbeafe; color: #1e40af; }
-  .badge-human { background: #dcfce7; color: #166534; }
-  .badge-creator { background: #fef3c7; color: #92400e; }
+  .breadcrumb { color: var(--text-muted); margin-bottom: 20px; font-size: 13px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .breadcrumb a { color: var(--text-secondary); font-weight: 500; }
+  .breadcrumb a:hover { color: var(--primary); opacity: 1; }
+  .breadcrumb span { color: var(--text-muted); font-size: 10px; }
+  .meta { background: var(--bg-code); padding: 14px 18px; border-radius: var(--radius); margin: 14px 0; border: 1px solid var(--border); font-size: 13px; color: var(--text-secondary); line-height: 1.9; }
+  .meta b { color: var(--text); font-weight: 600; }
+  .badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; letter-spacing: .01em; }
+  .badge-agent { background: var(--primary-light); color: var(--primary); }
+  .badge-human { background: var(--success-light); color: var(--success); }
+  .badge-creator { background: var(--warning-light); color: var(--warning); }
   .badge-channel { background: var(--bg-code); color: var(--text-secondary); border: 1px solid var(--border); }
-  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: var(--radius); font-size: 13px; font-weight: 500; border: 1px solid var(--border); background: var(--bg-card); color: var(--text); cursor: pointer; text-decoration: none; transition: all .15s; line-height: 1.4; }
-  .btn:hover { background: var(--bg-hover); text-decoration: none; border-color: var(--border-strong); }
-  .btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
-  .btn-primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
-  .btn-success { background: var(--success); color: #fff; border-color: var(--success); }
-  .btn-danger { background: transparent; color: var(--danger); border-color: var(--danger); }
-  .btn-danger:hover { background: var(--danger); color: #fff; }
-  .btn-ghost { background: transparent; border-color: transparent; color: var(--text-secondary); }
-  .btn-ghost:hover { background: var(--bg-hover); color: var(--text); }
-  .btn-small { padding: 4px 10px; font-size: 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-card); cursor: pointer; transition: all .15s; color: var(--text); font-family: inherit; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 20px; border-radius: 980px; font-size: 14px; font-weight: 500; border: none; background: var(--bg-code); color: var(--text); cursor: pointer; text-decoration: none; transition: all .2s; line-height: 1.2; letter-spacing: -.01em; }
+  .btn:hover { opacity: .85; text-decoration: none; transform: scale(1.02); }
+  .btn:active { transform: scale(.98); }
+  .btn-primary { background: var(--primary); color: #fff; }
+  .btn-primary:hover { background: var(--primary-hover); opacity: 1; }
+  .btn-success { background: var(--success); color: #fff; }
+  .btn-danger { background: var(--danger-light); color: var(--danger); }
+  .btn-danger:hover { background: var(--danger); color: #fff; opacity: 1; }
+  .btn-ghost { background: transparent; color: var(--text-secondary); }
+  .btn-ghost:hover { background: var(--bg-hover); color: var(--text); opacity: 1; }
+  .btn-small { padding: 5px 12px; font-size: 12px; border-radius: 980px; border: 1px solid var(--border); background: var(--bg-card); cursor: pointer; transition: all .2s; color: var(--text); font-family: inherit; font-weight: 500; }
   .btn-small:hover { background: var(--bg-hover); border-color: var(--border-strong); }
-  .btn-group { display: flex; gap: 6px; flex-wrap: wrap; }
-  .file-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin: 16px 0; }
-  .file-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 8px; transition: all .2s; text-decoration: none; color: var(--text); position: relative; }
-  .file-card:hover { border-color: var(--primary); box-shadow: var(--shadow-md); text-decoration: none; transform: translateY(-2px); }
-  .file-card .icon { font-size: 28px; }
-  .file-card .name { font-size: 13px; font-weight: 500; word-break: break-all; display: flex; align-items: center; gap: 6px; }
-  .file-card .file-meta { font-size: 11px; color: var(--text-muted); }
+  .btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
+  .file-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; margin: 18px 0; }
+  .file-card { background: var(--bg-card); backdrop-filter: var(--blur); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 10px; transition: all .25s; text-decoration: none; color: var(--text); position: relative; }
+  .file-card:hover { border-color: var(--primary); box-shadow: var(--shadow-md); text-decoration: none; transform: translateY(-3px); }
+  .file-card .icon { font-size: 32px; }
+  .file-card .name { font-size: 14px; font-weight: 500; word-break: break-all; display: flex; align-items: center; gap: 6px; }
+  .file-card .file-meta { font-size: 12px; color: var(--text-muted); }
   .member-list { display: flex; flex-wrap: wrap; gap: 10px; }
-  .member-chip { display: flex; align-items: center; gap: 6px; padding: 6px 12px; background: var(--bg-code); border: 1px solid var(--border); border-radius: 20px; font-size: 13px; transition: all .15s; }
-  .member-chip:hover { border-color: var(--border-strong); }
-  .upload-zone { border: 2px dashed var(--border-strong); border-radius: var(--radius-lg); padding: 40px 32px; text-align: center; cursor: pointer; transition: all .2s; margin: 16px 0; }
+  .member-chip { display: flex; align-items: center; gap: 6px; padding: 8px 14px; background: var(--bg-code); border: 1px solid var(--border); border-radius: 980px; font-size: 13px; transition: all .15s; }
+  .member-chip:hover { border-color: var(--border-strong); background: var(--bg-hover); }
+  .upload-zone { border: 2px dashed var(--border-strong); border-radius: var(--radius-xl); padding: 44px 32px; text-align: center; cursor: pointer; transition: all .25s; margin: 18px 0; }
   .upload-zone:hover, .upload-zone.drag-over { border-color: var(--primary); background: var(--primary-light); }
-  .upload-zone p { margin: 8px 0; color: var(--text-secondary); font-size: 14px; }
-  .upload-zone .upload-icon { font-size: 36px; margin-bottom: 4px; opacity: .7; }
-  .annotation { background: var(--warning-light); border: 1px solid #fde68a; border-radius: var(--radius); padding: 14px 16px; margin: 10px 0; }
-  .annotation.resolved { background: var(--bg-code); border-color: var(--border); opacity: .6; }
-  .annotation .ann-header { font-size: 13px; margin-bottom: 6px; color: var(--text-secondary); display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-  .annotation .ann-content { margin: 8px 0; font-size: 14px; line-height: 1.6; }
-  .annotation .ann-actions { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 8px; }
-  .code-table { border-collapse: collapse; width: 100%; font-size: 13px; font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace; line-height: 1.55; }
+  .upload-zone p { margin: 8px 0; color: var(--text-secondary); font-size: 15px; }
+  .upload-zone .upload-icon { font-size: 40px; margin-bottom: 8px; opacity: .6; }
+  .annotation { background: var(--warning-light); border: 1px solid rgba(255,159,10,.2); border-radius: var(--radius); padding: 16px 18px; margin: 12px 0; }
+  .annotation.resolved { background: var(--bg-code); border-color: var(--border); opacity: .5; }
+  .annotation .ann-header { font-size: 13px; margin-bottom: 8px; color: var(--text-secondary); display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+  .annotation .ann-content { margin: 8px 0; font-size: 15px; line-height: 1.6; }
+  .annotation .ann-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+  .code-table { border-collapse: collapse; width: 100%; font-size: 13px; font-family: "SF Mono", "Fira Code", Menlo, monospace; line-height: 1.6; }
+  .code-table tr { transition: background .1s; }
   .code-table tr:hover { background: var(--bg-hover); }
-  .code-table .line-num { color: var(--text-muted); text-align: right; padding: 2px 12px 2px 8px; user-select: none; width: 48px; min-width: 48px; font-size: 12px; vertical-align: top; border-right: 1px solid var(--border); }
-  .code-table .line-content { white-space: pre-wrap; word-break: break-all; padding: 2px 14px; }
-  .add-annotation { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; margin-top: 20px; box-shadow: var(--shadow); }
-  .toast { position: fixed; top: 20px; right: 20px; padding: 12px 20px; border-radius: var(--radius); font-size: 14px; z-index: 9999; animation: slideIn .3s ease; pointer-events: none; }
-  .toast-success { background: var(--success-light); border: 1px solid var(--success); color: var(--success); }
+  .code-table .line-num { color: var(--text-muted); text-align: right; padding: 2px 14px 2px 10px; user-select: none; width: 52px; min-width: 52px; font-size: 12px; vertical-align: top; border-right: 1px solid var(--border); }
+  .code-table .line-content { white-space: pre-wrap; word-break: break-all; padding: 2px 16px; }
+  .add-annotation { background: var(--bg-card); backdrop-filter: var(--blur); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 22px; margin-top: 22px; box-shadow: var(--shadow); }
+  .toast { position: fixed; top: 20px; right: 20px; padding: 14px 22px; border-radius: 980px; font-size: 14px; z-index: 9999; animation: slideIn .3s ease; pointer-events: none; backdrop-filter: var(--blur); font-weight: 500; }
+  .toast-success { background: var(--success-light); color: var(--success); }
   @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-  .fade-in { animation: fadeIn .3s ease; }
-  .nav { background: var(--bg-card); border-bottom: 1px solid var(--border); padding: 0 20px; position: sticky; top: 0; z-index: 100; backdrop-filter: blur(8px); background: rgba(255,255,255,.85); }
-  @media (prefers-color-scheme: dark) { .nav { background: rgba(30,41,59,.85); } }
-  .nav-inner { max-width: 960px; margin: 0 auto; display: flex; align-items: center; gap: 16px; height: 52px; }
-  .nav-brand { font-weight: 700; font-size: 15px; color: var(--text); display: flex; align-items: center; gap: 8px; text-decoration: none; }
-  .nav-brand:hover { text-decoration: none; color: var(--primary); }
-  .nav-right { margin-left: auto; display: flex; align-items: center; gap: 12px; font-size: 13px; }
-  .nav-right a { color: var(--text-secondary); }
-  .nav-right a:hover { color: var(--primary); text-decoration: none; }
-  .empty-state { text-align: center; padding: 48px 24px; color: var(--text-muted); }
-  .empty-state .empty-icon { font-size: 48px; margin-bottom: 12px; opacity: .6; }
-  .empty-state p { margin: 8px 0; }
-  .search-result { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin: 10px 0; transition: all .15s; }
-  .search-result:hover { border-color: var(--primary); box-shadow: var(--shadow); }
-  .search-result .result-path { font-weight: 600; font-size: 14px; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+  .fade-in { animation: fadeIn .5s ease; }
+  /* ── Navigation (Apple glass bar) ── */
+  .nav { background: rgba(255,255,255,.72); backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur); border-bottom: 1px solid var(--border); padding: 0 22px; position: sticky; top: 0; z-index: 100; }
+  @media (prefers-color-scheme: dark) { .nav { background: rgba(28,28,30,.72); } }
+  .nav-inner { max-width: 980px; margin: 0 auto; display: flex; align-items: center; gap: 20px; height: 48px; }
+  .nav-brand { font-weight: 600; font-size: 15px; color: var(--text); display: flex; align-items: center; gap: 8px; text-decoration: none; letter-spacing: -.01em; }
+  .nav-brand:hover { opacity: .7; }
+  .nav-right { margin-left: auto; display: flex; align-items: center; gap: 16px; font-size: 13px; }
+  .nav-right a { color: var(--text-secondary); font-weight: 500; }
+  .nav-right a:hover { color: var(--primary); opacity: 1; }
+  .nav-user { display: flex; align-items: center; gap: 8px; padding: 4px 12px 4px 4px; background: var(--bg-code); border-radius: 980px; font-size: 13px; font-weight: 500; color: var(--text); }
+  .nav-avatar { width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(135deg, var(--primary), #5856d6); display: flex; align-items: center; justify-content: center; color: #fff; font-size: 13px; font-weight: 600; }
+  .empty-state { text-align: center; padding: 52px 24px; color: var(--text-muted); }
+  .empty-state .empty-icon { font-size: 52px; margin-bottom: 16px; opacity: .5; }
+  .empty-state p { margin: 8px 0; font-size: 15px; }
+  .search-result { background: var(--bg-card); backdrop-filter: var(--blur); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; margin: 12px 0; transition: all .2s; }
+  .search-result:hover { border-color: var(--primary); box-shadow: var(--shadow-md); transform: translateY(-1px); }
+  .search-result .result-path { font-weight: 600; font-size: 15px; }
   .search-result .result-count { font-size: 12px; color: var(--text-muted); margin-left: 8px; }
-  .search-result ul { margin: 8px 0 0; padding-left: 0; list-style: none; }
-  .search-result li { padding: 4px 0; font-size: 13px; color: var(--text-secondary); border-bottom: 1px solid var(--border); }
+  .search-result ul { margin: 10px 0 0; padding-left: 0; list-style: none; }
+  .search-result li { padding: 5px 0; font-size: 13px; color: var(--text-secondary); border-bottom: 1px solid var(--border); font-family: "SF Mono", Menlo, monospace; }
   .search-result li:last-child { border-bottom: none; }
-  .search-result li small { color: var(--text-muted); font-family: "SF Mono", monospace; margin-right: 8px; }
-  .editor-area { width: 100%; min-height: 500px; font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace; font-size: 14px; line-height: 1.6; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-code); color: var(--text); resize: vertical; tab-size: 2; }
-  .editor-area:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,.1); }
-  .hero { text-align: center; padding: 48px 24px 40px; }
-  .hero h1 { font-size: 32px; margin-bottom: 12px; }
-  .hero p { font-size: 16px; color: var(--text-secondary); max-width: 520px; margin: 0 auto 24px; line-height: 1.7; }
-  .hero-features { display: flex; justify-content: center; gap: 32px; margin-top: 24px; flex-wrap: wrap; }
-  .hero-features .feature { text-align: center; max-width: 160px; }
-  .hero-features .feature-icon { font-size: 28px; margin-bottom: 8px; }
-  .hero-features .feature-label { font-size: 13px; color: var(--text-secondary); }
-  .section-divider { display: flex; align-items: center; gap: 12px; margin: 28px 0 20px; font-size: 13px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
-  .section-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
-  .office-preview { text-align: center; padding: 40px; background: var(--bg-code); border-radius: var(--radius-lg); border: 1px solid var(--border); }
-  .office-preview .icon { font-size: 48px; margin-bottom: 12px; }
-  .office-preview .info { color: var(--text-secondary); font-size: 14px; margin: 8px 0; }
-  .img-preview { text-align: center; padding: 20px; }
-  .img-preview img { max-width: 100%; border-radius: var(--radius); box-shadow: var(--shadow-md); }
+  .search-result li small { color: var(--text-muted); margin-right: 10px; }
+  .editor-area { width: 100%; min-height: 500px; font-family: "SF Mono", "Fira Code", Menlo, monospace; font-size: 14px; line-height: 1.6; padding: 18px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-code); color: var(--text); resize: vertical; tab-size: 2; }
+  .editor-area:focus { border-color: var(--primary); box-shadow: 0 0 0 4px var(--primary-light); }
+  /* ── Hero ── */
+  .hero { text-align: center; padding: 56px 24px 48px; position: relative; overflow: hidden; }
+  .hero h1 { font-size: 40px; margin-bottom: 14px; letter-spacing: -.03em; background: linear-gradient(135deg, var(--text) 0%, var(--text-secondary) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+  .hero .hero-desc { font-size: 17px; color: var(--text-secondary); max-width: 560px; margin: 0 auto 28px; line-height: 1.5; font-weight: 400; }
+  .hero-glow { position: absolute; top: -120px; left: 50%; transform: translateX(-50%); width: 600px; height: 400px; background: radial-gradient(ellipse, var(--primary-light) 0%, transparent 70%); pointer-events: none; opacity: .6; z-index: -1; }
+  .hero-features { display: flex; justify-content: center; gap: 36px; margin-top: 28px; flex-wrap: wrap; }
+  .hero-features .feature { text-align: center; }
+  .hero-features .feature-icon { font-size: 32px; margin-bottom: 10px; display: flex; align-items: center; justify-content: center; width: 64px; height: 64px; border-radius: var(--radius-lg); background: var(--bg-card); backdrop-filter: var(--blur); border: 1px solid var(--border); margin: 0 auto 10px; box-shadow: var(--shadow); }
+  .hero-features .feature-label { font-size: 13px; color: var(--text-secondary); font-weight: 500; }
+  /* ── 404 ── */
+  .not-found { text-align: center; padding: 100px 24px; }
+  .not-found .nf-code { font-size: 80px; font-weight: 800; background: linear-gradient(135deg, var(--text-muted), var(--border-strong)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; line-height: 1; }
+  .not-found .nf-msg { font-size: 17px; color: var(--text-secondary); margin: 20px 0 32px; }
+  .img-preview { text-align: center; padding: 24px; }
+  .img-preview img { max-width: 100%; border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); }
   details { margin: 8px 0; }
-  details > summary { cursor: pointer; font-size: 13px; color: var(--text-secondary); padding: 8px 0; user-select: none; }
-  details > summary:hover { color: var(--text); }
-  .not-found { text-align: center; padding: 80px 24px; }
-  .not-found .nf-code { font-size: 72px; font-weight: 800; color: var(--text-muted); opacity: .4; line-height: 1; }
-  .not-found .nf-msg { font-size: 18px; color: var(--text-secondary); margin: 16px 0 28px; }
+  details > summary { cursor: pointer; font-size: 13px; color: var(--text-secondary); padding: 10px 0; user-select: none; font-weight: 500; }
+  details > summary:hover { color: var(--primary); }
+  /* ── Auth Pages ── */
+  .auth-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--bg); padding: 20px; }
+  .auth-card { width: 100%; max-width: 400px; background: var(--bg-card); backdrop-filter: var(--blur); border: 1px solid var(--border); border-radius: var(--radius-xl); padding: 40px 36px; box-shadow: var(--shadow-lg); text-align: center; }
+  .auth-logo { font-size: 48px; margin-bottom: 16px; }
+  .auth-title { font-size: 28px; font-weight: 700; letter-spacing: -.03em; margin-bottom: 6px; }
+  .auth-subtitle { font-size: 15px; color: var(--text-secondary); margin-bottom: 28px; }
+  .auth-form { text-align: left; display: flex; flex-direction: column; gap: 16px; }
+  .auth-form .form-group { display: flex; flex-direction: column; }
+  .auth-form label { font-size: 13px; font-weight: 500; color: var(--text-secondary); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .03em; }
+  .auth-btn { width: 100%; padding: 12px; border-radius: var(--radius); font-size: 16px; font-weight: 600; background: var(--primary); color: #fff; border: none; cursor: pointer; transition: all .2s; letter-spacing: -.01em; }
+  .auth-btn:hover { background: var(--primary-hover); }
+  .auth-btn:active { transform: scale(.98); }
+  .auth-link { margin-top: 20px; font-size: 14px; color: var(--text-secondary); text-align: center; }
+  .auth-link a { font-weight: 500; }
+  .auth-error { background: var(--danger-light); color: var(--danger); padding: 10px 14px; border-radius: var(--radius); font-size: 14px; margin-bottom: 12px; }
+  .auth-success { background: var(--success-light); color: var(--success); padding: 10px 14px; border-radius: var(--radius); font-size: 14px; margin-bottom: 12px; }
+  /* ── Responsive ── */
   @media (max-width: 640px) {
-    .container { padding: 16px 12px; }
-    .card { padding: 16px; }
-    .file-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+    .container { padding: 16px 14px; }
+    .card { padding: 18px; border-radius: var(--radius); }
+    .file-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
     .card-header { flex-direction: column; align-items: flex-start; gap: 8px; }
     .member-list { flex-direction: column; }
-    .hero h1 { font-size: 24px; }
-    .hero-features { gap: 20px; }
+    .hero h1 { font-size: 28px; }
+    .hero .hero-desc { font-size: 15px; }
+    .hero-features { gap: 16px; }
     .btn-group { flex-direction: column; }
-    .nav-inner { gap: 10px; }
+    .nav-inner { gap: 12px; }
     .editor-area { min-height: 350px; font-size: 13px; }
+    .form-row { grid-template-columns: 1fr; }
+    .auth-card { padding: 28px 22px; }
   }
   @media (max-width: 400px) {
     .file-grid { grid-template-columns: 1fr; }
   }
 `;
 
-function page(title: string, body: string): string {
+function page(title: string, user: any, body: string): string {
+  const userHtml = user
+    ? `<div class="nav-user"><div class="nav-avatar">${esc(user.displayName[0].toUpperCase())}</div>${esc(user.displayName)}</div><a href="/auth/logout">退出</a>`
+    : '<a href="/auth/login">登录</a>';
   return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} — Context</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📦</text></svg>"><style>${CSS}</style></head><body>
-  <nav class="nav"><div class="nav-inner"><a href="/s" class="nav-brand">📦 Context</a><div class="nav-right"><a href="/s">首页</a><a href="/api/health">API</a></div></div></nav>
+  <nav class="nav"><div class="nav-inner"><a href="/s" class="nav-brand">📦 Context</a><div class="nav-right">${userHtml}</div></div></nav>
   <div class="container">${body}</div></body></html>`;
 }
 
-function notFoundPage(msg: string): string {
-  return page("Not Found", `<div class="not-found"><div class="nf-code">404</div><div class="nf-msg">${esc(msg)}</div><a href="/s" class="btn btn-primary">← 回到首页</a></div>`);
+function authPage(title: string, body: string): string {
+  return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} — Context</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📦</text></svg>"><style>${CSS}</style></head><body>
+  <div class="auth-page">${body}</div></body></html>`;
 }
 
-async function renderSpacePage(spaceId: string, space: any): Promise<string> {
+function notFoundPage(msg: string): string {
+  return page("Not Found", null, `<div class="not-found"><div class="nf-code">404</div><div class="nf-msg">${esc(msg)}</div><a href="/s" class="btn btn-primary">← 回到首页</a></div>`);
+}
+
+async function renderSpacePage(spaceId: string, space: any, user?: any): Promise<string> {
   const files = await storage.listFiles(spaceId);
   const members = await storage.getMembers(spaceId);
   const allAnnotations = await storage.getAnnotations(spaceId, undefined, "open");
@@ -1153,7 +1359,7 @@ async function renderSpacePage(spaceId: string, space: any): Promise<string> {
     return `<div class="member-chip">${badge} ${esc(m.name)}${m.role ? ` · ${esc(m.role)}` : ""}</div>`;
   }).join("");
 
-  return page(space.name, `
+  return page(space.name, user, `
     <div class="breadcrumb"><a href="/s">首页</a> <span>/</span> <b>${esc(space.name)}</b></div>
 
     <div class="card">
@@ -1237,7 +1443,7 @@ async function renderSpacePage(spaceId: string, space: any): Promise<string> {
   `);
 }
 
-function renderFilePage(space: any, file: any, spaceId: string, filePath: string, annotations?: any[], req?: any): string {
+function renderFilePage(space: any, file: any, spaceId: string, filePath: string, annotations?: any[], req?: any, user?: any): string {
   const openAnns = (annotations || []).filter((a: any) => a.status === "open");
   const resolvedAnns = (annotations || []).filter((a: any) => a.status === "resolved");
 
@@ -1334,7 +1540,7 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
     contentHtml = `<div style="border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;"><table class="code-table">${numberedContent}</table></div>`;
   }
 
-  return page(`${filePath} — ${space.name}`, `
+  return page(`${filePath} — ${space.name}`, user, `
     <div class="breadcrumb">
       <a href="/s/${spaceId}">${esc(space.name)}</a> <span>/</span> <b>${esc(filePath)}</b>
     </div>
