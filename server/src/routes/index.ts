@@ -66,7 +66,7 @@ router.get("/health", (_req, res) => {
   res.json({
     status: "ok",
     service: "context-server",
-    version: "1.14",
+    version: "1.16",
     pluginVersion: "1.0.8",
     updateCommand: "clawhub update context-collab --force",
   });
