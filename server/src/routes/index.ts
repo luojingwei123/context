@@ -2409,7 +2409,7 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
           serverAnns.map(function(a, i) {
             return '<div style="padding:8px;border-bottom:1px solid var(--border);font-size:12px;display:flex;gap:6px;align-items:flex-start;">' +
               '<input type="checkbox" class="cart-check" data-idx="' + i + '" style="margin-top:3px;flex-shrink:0;">' +
-              '<div style="flex:1;" onclick="jumpToAnn(' + i + ')" style="cursor:pointer;">' +
+              '<div style="flex:1;cursor:pointer;" onclick="jumpToAnn(' + i + ')">' +
               '<div style="font-weight:600;cursor:pointer;">' + (a.authorType==='human'?'👤':'🤖') + ' ' + escH(a.author) + ' · ' + (a.line>0?'第'+a.line+'行':'全文') + '</div>' +
               (a.selectedText ? '<div style="background:#f9fafb;border-left:2px solid #d1d5db;padding:2px 6px;margin:4px 0;color:#6b7280;font-size:11px;">「' + escH(a.selectedText).substring(0,80) + '」</div>' : '') +
               '<div style="color:var(--text-secondary);margin-top:2px;">' + escH(a.content).substring(0,60) + '</div>' +
