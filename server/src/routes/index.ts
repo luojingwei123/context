@@ -66,10 +66,25 @@ router.get("/health", (_req, res) => {
   res.json({
     status: "ok",
     service: "context-server",
-    version: "1.16",
+    version: "1.17",
     pluginVersion: "1.0.8",
     updateCommand: "clawhub update context-collab --force",
   });
+});
+
+// ─── Admin: fix mimeType for docx files with HTML content ───
+router.post("/admin/fix-docx-mime/:spaceId", async (req, res) => {
+  try {
+    const files = await storage.listFiles(req.params.spaceId);
+    const fixed: string[] = [];
+    for (const f of files) {
+      if (f.path.match(/\.docx$/i) && f.mimeType?.startsWith("application/") && f.content?.trim().startsWith("<")) {
+        await storage.writeFile(req.params.spaceId, f.path, f.content, f.modifiedBy || "admin", "text/html");
+        fixed.push(f.path);
+      }
+    }
+    res.json({ success: true, fixed });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
 // ─── Space CRUD ───
@@ -193,7 +208,10 @@ router.put("/spaces/:id/files/*", async (req, res) => {
     if (!filePath) return res.status(400).json({ error: "File path required" });
     const { content, modifiedBy } = req.body;
     if (content === undefined) return res.status(400).json({ error: "content is required" });
-    res.json({ file: await storage.writeFile(req.params.id, filePath, content, modifiedBy || "unknown") });
+    // If saving HTML content to a .docx file, preserve text/html mimeType (mammoth-converted)
+    const ext = filePath.split('.').pop()?.toLowerCase();
+    const mimeOverride = (ext === 'docx' && content && content.trim().startsWith('<')) ? 'text/html' : undefined;
+    res.json({ file: await storage.writeFile(req.params.id, filePath, content, modifiedBy || "unknown", mimeOverride) });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
