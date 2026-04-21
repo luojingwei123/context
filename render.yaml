@@ -16,5 +16,9 @@ services:
         sync: false
       - key: TURSO_AUTH_TOKEN
         sync: false
+      - key: DMWORK_API_URL
+        sync: false
+      - key: DMWORK_BOT_TOKEN
+        sync: false
     healthCheckPath: /api/health
     autoDeploy: true
