@@ -397,8 +397,12 @@ export async function addAnnotation(spaceId: string, ann: { filePath: string; li
   const id = nanoid(12);
   const now = new Date().toISOString();
   await db.execute({
-    sql: "INSERT INTO annotations (id, space_id, file_path, line, end_line, content, author, author_type, assignee, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)",
-    args: [id, spaceId, ann.filePath, ann.line || 0, ann.endLine || 0, ann.content, ann.author, ann.authorType || "human", ann.assignee || null, now, now],
+    sql: ann.assignee 
+      ? "INSERT INTO annotations (id, space_id, file_path, line, end_line, content, author, author_type, assignee, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)"
+      : "INSERT INTO annotations (id, space_id, file_path, line, end_line, content, author, author_type, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)",
+    args: ann.assignee
+      ? [id, spaceId, ann.filePath, ann.line || 0, ann.endLine || 0, ann.content, ann.author, ann.authorType || "human", ann.assignee, now, now]
+      : [id, spaceId, ann.filePath, ann.line || 0, ann.endLine || 0, ann.content, ann.author, ann.authorType || "human", now, now],
   });
   return {
     id,

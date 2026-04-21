@@ -1960,7 +1960,7 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
     function doCopyRef() {
       document.getElementById('floatToolbar').style.display = 'none';
       var ref = CTX_URL + '#L' + selStartLine + (selEndLine > selStartLine ? '-L' + selEndLine : '');
-      navigator.clipboard.writeText(ref).then(function() { showToast('✅ 引用已复制'); });
+      navigator.clipboard.writeText(ref).then(function() { showToast('✅ 引用已复制 — 发给AI或同事可直接定位到此处'); });
     }
     function doCopyText() {
       document.getElementById('floatToolbar').style.display = 'none';
@@ -2088,6 +2088,39 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
         setTimeout(function() { rows[a.line-1].style.background = '#fef3c7'; rows[a.line-1].style.outline = ''; }, 2000);
       }
     }
+
+
+    // ── Handle #L line anchors in URL ──
+    (function() {
+      var hash = window.location.hash;
+      if (!hash || !hash.match(/^#L\d/)) return;
+      var m = hash.match(/^#L(\d+)(?:-L?(\d+))?/);
+      if (!m) return;
+      var startLine = parseInt(m[1]), endLine = m[2] ? parseInt(m[2]) : startLine;
+      setTimeout(function() {
+        var panel = document.getElementById('previewPanel');
+        if (!panel) return;
+        var rows = panel.querySelectorAll('tr');
+        if (rows.length && startLine <= rows.length) {
+          for (var l = startLine; l <= Math.min(endLine, rows.length); l++) {
+            rows[l-1].style.background = '#fef3c7';
+            rows[l-1].style.borderLeft = '3px solid #f59e0b';
+          }
+          rows[startLine-1].scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } else {
+          // For markdown, try heading/paragraph elements
+          var elems = panel.querySelectorAll('h1,h2,h3,h4,p,li,blockquote,pre,table');
+          if (startLine <= elems.length) {
+            for (var l = startLine; l <= Math.min(endLine, elems.length); l++) {
+              elems[l-1].style.background = '#fef3c7';
+              elems[l-1].style.borderLeft = '3px solid #f59e0b';
+              elems[l-1].style.paddingLeft = '8px';
+            }
+            elems[startLine-1].scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }
+      }, 300);
+    })();
 
     // ── Cart panel ──
     var cartOpen = false;
