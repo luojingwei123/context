@@ -1291,6 +1291,28 @@ const CSS = `
   .search-result li small { color: var(--text-muted); margin-right: 10px; }
   .editor-area { width: 100%; min-height: 500px; font-family: "SF Mono", "Fira Code", Menlo, monospace; font-size: 14px; line-height: 1.6; padding: 18px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-code); color: var(--text); resize: vertical; tab-size: 2; }
   .editor-area:focus { border-color: var(--primary); box-shadow: 0 0 0 4px var(--primary-light); }
+  /* Split view */
+  .split-view { display: flex; gap: 0; border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; min-height: 500px; background: var(--bg-card); }
+  .split-pane { flex: 1; min-width: 0; overflow: auto; position: relative; }
+  .split-pane-source { border-right: 1px solid var(--border); background: var(--bg-code); }
+  .split-pane-source textarea { width: 100%; height: 100%; min-height: 500px; border: none; outline: none; padding: 16px; font-family: "SF Mono","Fira Code",Menlo,monospace; font-size: 13px; line-height: 1.6; resize: none; background: transparent; color: var(--text); tab-size: 2; }
+  .split-pane-preview { padding: 20px 24px; background: var(--bg-card); }
+  .split-pane-preview h1,.split-pane-preview h2,.split-pane-preview h3 { margin-top: 1em; margin-bottom: .5em; }
+  .split-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; background: var(--bg-page); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--text-secondary); font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
+  .split-header .save-indicator { font-size: 11px; color: var(--text-muted); font-weight: normal; text-transform: none; }
+  .split-divider { width: 4px; background: var(--border); cursor: col-resize; flex-shrink: 0; transition: background .2s; }
+  .split-divider:hover, .split-divider.dragging { background: var(--primary); }
+  /* Circle select overlay */
+  .circle-select-canvas { position: absolute; inset: 0; z-index: 50; cursor: crosshair; }
+  .circle-select-rect { position: absolute; border: 2px dashed #3b82f6; background: rgba(59,130,246,.08); border-radius: 4px; pointer-events: none; z-index: 51; }
+  .circle-toolbar { position: absolute; z-index: 9999; background: #1e293b; color: #fff; border-radius: 8px; padding: 8px 12px; box-shadow: 0 4px 16px rgba(0,0,0,.3); display: none; }
+  .circle-toolbar button { background: none; border: none; color: #fff; cursor: pointer; padding: 4px 10px; border-radius: 4px; font-size: 13px; }
+  .circle-toolbar button:hover { background: rgba(255,255,255,.15); }
+  /* Mode toggle */
+  .view-mode-toggle { display: inline-flex; background: var(--bg-code); border-radius: var(--radius); border: 1px solid var(--border); overflow: hidden; }
+  .view-mode-toggle button { padding: 6px 14px; font-size: 12px; border: none; background: none; cursor: pointer; color: var(--text-secondary); font-weight: 500; }
+  .view-mode-toggle button.active { background: var(--primary); color: #fff; }
+  .view-mode-toggle button:hover:not(.active) { background: var(--bg-hover); }
   /* ── Hero ── */
   .hero { text-align: center; padding: 56px 24px 48px; position: relative; overflow: hidden; }
   .hero h1 { font-size: 40px; margin-bottom: 14px; letter-spacing: -.03em; background: linear-gradient(135deg, var(--text) 0%, var(--text-secondary) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
@@ -1606,11 +1628,293 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
       </div>
     </div>`;
   } else if (isMd) {
-    contentHtml = `<div class="card" style="padding:20px 24px;">${mdToHtml(file.content)}</div>
-    <details style="margin-top:12px;"><summary style="cursor:pointer;color:var(--text-secondary);font-size:13px;">📝 查看源码</summary>
-    <table class="code-table">${numberedContent}</table></details>`;
+    const escapedContent = file.content.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$/g, '\\$');
+    contentHtml = `
+    <div style="margin-bottom:8px;display:flex;align-items:center;gap:8px;">
+      <div class="view-mode-toggle" id="viewToggle">
+        <button class="active" data-mode="split" onclick="setViewMode('split')">📐 分屏</button>
+        <button data-mode="preview" onclick="setViewMode('preview')">👁️ 预览</button>
+        <button data-mode="source" onclick="setViewMode('source')">📝 源码</button>
+      </div>
+      <button id="circleBtn" onclick="toggleCircleMode()" class="btn" style="font-size:12px;padding:4px 12px;">⭕ 圈选</button>
+      <span id="circleHint" style="font-size:11px;color:var(--text-muted);display:none;">拖拽画框圈选区域，松手后可批注</span>
+    </div>
+    <div id="splitView" class="split-view">
+      <div class="split-pane split-pane-source" id="sourcePane">
+        <div class="split-header"><span>📝 源码 (可编辑)</span><span class="save-indicator" id="saveStatus">已保存</span></div>
+        <textarea id="sourceEditor" spellcheck="false" oninput="onSourceEdit()">${esc(file.content)}</textarea>
+      </div>
+      <div class="split-divider" id="splitDivider"></div>
+      <div class="split-pane split-pane-preview" id="previewPane" style="position:relative;">
+        <div class="split-header"><span>👁️ 预览 (可框选批注 / 可圈选)</span></div>
+        <div id="previewContent" style="padding:16px;">${mdToHtml(file.content)}</div>
+      </div>
+    </div>
+    <div id="circleToolbar" class="circle-toolbar">
+      <button onclick="doCircleAnnotate()">💬 批注此区域</button>
+      <button onclick="cancelCircle()">✕ 取消</button>
+    </div>
+    <script>
+    // ── Source content for live preview ──
+    var sourceContent = \`${escapedContent}\`;
+
+    // ── View mode toggle ──
+    function setViewMode(mode) {
+      var btns = document.querySelectorAll('#viewToggle button');
+      btns.forEach(function(b) { b.classList.toggle('active', b.dataset.mode === mode); });
+      var src = document.getElementById('sourcePane');
+      var div = document.getElementById('splitDivider');
+      var prev = document.getElementById('previewPane');
+      if (mode === 'split') { src.style.display='block'; div.style.display='block'; prev.style.display='block'; }
+      else if (mode === 'preview') { src.style.display='none'; div.style.display='none'; prev.style.display='block'; }
+      else { src.style.display='block'; div.style.display='block'; prev.style.display='none'; }
+    }
+
+    // ── Live edit → preview ──
+    var saveTimer = null;
+    function onSourceEdit() {
+      var ta = document.getElementById('sourceEditor');
+      var preview = document.getElementById('previewContent');
+      preview.innerHTML = miniMdToHtml(ta.value);
+      document.getElementById('saveStatus').textContent = '● 未保存';
+      document.getElementById('saveStatus').style.color = '#f59e0b';
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(function() { autoSave(ta.value); }, 2000);
+    }
+
+    function autoSave(content) {
+      fetch('/api/spaces/${spaceId}/files/${filePath.replace(/'/g, "\\'")}', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: content, modifiedBy: '${esc((user && user.displayName) || "web-user")}' })
+      }).then(function(r) {
+        if (r.ok) {
+          document.getElementById('saveStatus').textContent = '✓ 已自动保存';
+          document.getElementById('saveStatus').style.color = '#22c55e';
+        }
+      }).catch(function() {
+        document.getElementById('saveStatus').textContent = '✕ 保存失败';
+        document.getElementById('saveStatus').style.color = '#ef4444';
+      });
+    }
+
+    // ── Mini markdown renderer (client-side) ──
+    function miniMdToHtml(md) {
+      var h = md.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      h = h.replace(/\`\`\`(\\w*)\\n([\\s\\S]*?)\`\`\`/g, '<pre><code>$2</code></pre>');
+      h = h.replace(/\`([^\`]+)\`/g, '<code>$1</code>');
+      h = h.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
+      h = h.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+      h = h.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+      h = h.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+      h = h.replace(/\\*\\*([^*]+)\\*\\*/g, '<b>$1</b>');
+      h = h.replace(/\\*([^*]+)\\*/g, '<i>$1</i>');
+      h = h.replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g, '<a href="$2">$1</a>');
+      h = h.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
+      h = h.replace(/^- (.+)$/gm, '<li>$1</li>');
+      h = h.replace(/(<li>[\\s\\S]*?<\\/li>\\n?)+/g, '<ul>$&</ul>');
+      h = h.replace(/\\n\\n/g, '</p><p>');
+      h = '<p>' + h + '</p>';
+      h = h.replace(/<p>\\s*<\\/p>/g, '');
+      return h;
+    }
+
+    // ── Resizable split divider ──
+    (function() {
+      var divider = document.getElementById('splitDivider');
+      var split = document.getElementById('splitView');
+      var src = document.getElementById('sourcePane');
+      var isDragging = false;
+      divider.addEventListener('mousedown', function(e) {
+        isDragging = true; divider.classList.add('dragging');
+        e.preventDefault();
+      });
+      document.addEventListener('mousemove', function(e) {
+        if (!isDragging) return;
+        var rect = split.getBoundingClientRect();
+        var pct = ((e.clientX - rect.left) / rect.width) * 100;
+        pct = Math.max(20, Math.min(80, pct));
+        src.style.flex = 'none'; src.style.width = pct + '%';
+      });
+      document.addEventListener('mouseup', function() {
+        isDragging = false; divider.classList.remove('dragging');
+      });
+    })();
+
+    // ── Circle select mode ──
+    var circleMode = false;
+    var circleCanvas = null;
+    var circleRect = null;
+    var circleStart = null;
+
+    function toggleCircleMode() {
+      circleMode = !circleMode;
+      var btn = document.getElementById('circleBtn');
+      var hint = document.getElementById('circleHint');
+      var preview = document.getElementById('previewPane');
+      if (circleMode) {
+        btn.style.background = '#3b82f6'; btn.style.color = '#fff';
+        hint.style.display = 'inline';
+        // Create overlay canvas
+        circleCanvas = document.createElement('div');
+        circleCanvas.className = 'circle-select-canvas';
+        circleCanvas.addEventListener('mousedown', circleDown);
+        circleCanvas.addEventListener('mousemove', circleMove);
+        circleCanvas.addEventListener('mouseup', circleUp);
+        preview.style.position = 'relative';
+        preview.appendChild(circleCanvas);
+      } else {
+        btn.style.background = ''; btn.style.color = '';
+        hint.style.display = 'none';
+        if (circleCanvas && circleCanvas.parentNode) circleCanvas.parentNode.removeChild(circleCanvas);
+        if (circleRect && circleRect.parentNode) circleRect.parentNode.removeChild(circleRect);
+        document.getElementById('circleToolbar').style.display = 'none';
+        circleCanvas = null; circleRect = null;
+      }
+    }
+
+    function circleDown(e) {
+      if (circleRect && circleRect.parentNode) circleRect.parentNode.removeChild(circleRect);
+      document.getElementById('circleToolbar').style.display = 'none';
+      var pane = document.getElementById('previewPane');
+      var r = pane.getBoundingClientRect();
+      circleStart = { x: e.clientX - r.left + pane.scrollLeft, y: e.clientY - r.top + pane.scrollTop };
+      circleRect = document.createElement('div');
+      circleRect.className = 'circle-select-rect';
+      pane.appendChild(circleRect);
+    }
+
+    function circleMove(e) {
+      if (!circleStart || !circleRect) return;
+      var pane = document.getElementById('previewPane');
+      var r = pane.getBoundingClientRect();
+      var cx = e.clientX - r.left + pane.scrollLeft;
+      var cy = e.clientY - r.top + pane.scrollTop;
+      var x = Math.min(circleStart.x, cx), y = Math.min(circleStart.y, cy);
+      var w = Math.abs(cx - circleStart.x), h = Math.abs(cy - circleStart.y);
+      circleRect.style.left = x + 'px'; circleRect.style.top = y + 'px';
+      circleRect.style.width = w + 'px'; circleRect.style.height = h + 'px';
+    }
+
+    function circleUp(e) {
+      if (!circleStart || !circleRect) return;
+      var w = parseInt(circleRect.style.width); var h = parseInt(circleRect.style.height);
+      if (w < 10 || h < 10) { if (circleRect.parentNode) circleRect.parentNode.removeChild(circleRect); circleStart = null; return; }
+      // Show toolbar near the rect
+      var toolbar = document.getElementById('circleToolbar');
+      var pane = document.getElementById('previewPane');
+      var pr = pane.getBoundingClientRect();
+      toolbar.style.left = (pr.left + parseInt(circleRect.style.left) + w/2 - 80 + window.scrollX) + 'px';
+      toolbar.style.top = (pr.top + parseInt(circleRect.style.top) + h + 10 + window.scrollY) + 'px';
+      toolbar.style.display = 'block';
+      circleStart = null;
+    }
+
+    function doCircleAnnotate() {
+      document.getElementById('circleToolbar').style.display = 'none';
+      var floatAnn = document.getElementById('floatingAnnotation');
+      document.getElementById('floatLine').value = 0;
+      document.getElementById('floatEndLine').value = 0;
+      document.getElementById('floatLineInfo').textContent = '⭕ 圈选区域批注';
+      var pane = document.getElementById('previewPane');
+      var pr = pane.getBoundingClientRect();
+      floatAnn.style.left = (pr.left + parseInt(circleRect.style.left) + window.scrollX) + 'px';
+      floatAnn.style.top = (pr.top + parseInt(circleRect.style.top) + parseInt(circleRect.style.height) + 50 + window.scrollY) + 'px';
+      floatAnn.style.display = 'block';
+      document.getElementById('floatContent').focus();
+    }
+
+    function cancelCircle() {
+      document.getElementById('circleToolbar').style.display = 'none';
+      if (circleRect && circleRect.parentNode) circleRect.parentNode.removeChild(circleRect);
+    }
+    </script>`;
   } else {
-    contentHtml = `<div style="border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;"><table class="code-table">${numberedContent}</table></div>`;
+    // Non-markdown text files: same split view but with code highlighting
+    const escapedContent = file.content.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$/g, '\\$');
+    contentHtml = `
+    <div style="margin-bottom:8px;display:flex;align-items:center;gap:8px;">
+      <div class="view-mode-toggle" id="viewToggle">
+        <button class="active" data-mode="split" onclick="setViewMode('split')">📐 分屏</button>
+        <button data-mode="source" onclick="setViewMode('source')">📝 源码</button>
+      </div>
+      <button id="circleBtn" onclick="toggleCircleMode()" class="btn" style="font-size:12px;padding:4px 12px;">⭕ 圈选</button>
+    </div>
+    <div id="splitView" class="split-view">
+      <div class="split-pane split-pane-source" id="sourcePane">
+        <div class="split-header"><span>📝 源码 (可编辑)</span><span class="save-indicator" id="saveStatus">已保存</span></div>
+        <textarea id="sourceEditor" spellcheck="false" oninput="onSourceEdit()">${esc(file.content)}</textarea>
+      </div>
+      <div class="split-divider" id="splitDivider"></div>
+      <div class="split-pane split-pane-preview" id="previewPane" style="position:relative;">
+        <div class="split-header"><span>👁️ 带行号预览</span></div>
+        <div id="previewContent"><table class="code-table">${numberedContent}</table></div>
+      </div>
+    </div>
+    <div id="circleToolbar" class="circle-toolbar">
+      <button onclick="doCircleAnnotate()">💬 批注此区域</button>
+      <button onclick="cancelCircle()">✕ 取消</button>
+    </div>
+    <script>
+    function setViewMode(mode) {
+      var btns = document.querySelectorAll('#viewToggle button');
+      btns.forEach(function(b) { b.classList.toggle('active', b.dataset.mode === mode); });
+      var src = document.getElementById('sourcePane');
+      var div = document.getElementById('splitDivider');
+      var prev = document.getElementById('previewPane');
+      if (mode === 'split') { src.style.display='block'; div.style.display='block'; prev.style.display='block'; }
+      else if (mode === 'source') { src.style.display='block'; div.style.display='none'; prev.style.display='none'; }
+      else { src.style.display='none'; div.style.display='none'; prev.style.display='block'; }
+    }
+    var saveTimer = null;
+    function onSourceEdit() {
+      document.getElementById('saveStatus').textContent = '● 未保存';
+      document.getElementById('saveStatus').style.color = '#f59e0b';
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(function() {
+        var ta = document.getElementById('sourceEditor');
+        fetch('/api/spaces/${spaceId}/files/${filePath.replace(/'/g, "\\'")}', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: ta.value, modifiedBy: '${esc((user && user.displayName) || "web-user")}' })
+        }).then(function(r) {
+          if (r.ok) { document.getElementById('saveStatus').textContent = '✓ 已自动保存'; document.getElementById('saveStatus').style.color = '#22c55e'; }
+        }).catch(function() { document.getElementById('saveStatus').textContent = '✕ 保存失败'; document.getElementById('saveStatus').style.color = '#ef4444'; });
+      }, 2000);
+    }
+    // Resizable divider
+    (function() {
+      var divider = document.getElementById('splitDivider');
+      var split = document.getElementById('splitView');
+      var src = document.getElementById('sourcePane');
+      var isDragging = false;
+      divider.addEventListener('mousedown', function(e) { isDragging = true; divider.classList.add('dragging'); e.preventDefault(); });
+      document.addEventListener('mousemove', function(e) { if (!isDragging) return; var rect = split.getBoundingClientRect(); var pct = ((e.clientX - rect.left) / rect.width) * 100; pct = Math.max(20, Math.min(80, pct)); src.style.flex = 'none'; src.style.width = pct + '%'; });
+      document.addEventListener('mouseup', function() { isDragging = false; divider.classList.remove('dragging'); });
+    })();
+    // Circle select
+    var circleMode = false, circleCanvas = null, circleRect = null, circleStart = null;
+    function toggleCircleMode() {
+      circleMode = !circleMode;
+      var btn = document.getElementById('circleBtn');
+      var preview = document.getElementById('previewPane');
+      if (circleMode) {
+        btn.style.background = '#3b82f6'; btn.style.color = '#fff';
+        circleCanvas = document.createElement('div'); circleCanvas.className = 'circle-select-canvas';
+        circleCanvas.addEventListener('mousedown', circleDown); circleCanvas.addEventListener('mousemove', circleMove); circleCanvas.addEventListener('mouseup', circleUp);
+        preview.style.position = 'relative'; preview.appendChild(circleCanvas);
+      } else {
+        btn.style.background = ''; btn.style.color = '';
+        if (circleCanvas && circleCanvas.parentNode) circleCanvas.parentNode.removeChild(circleCanvas);
+        if (circleRect && circleRect.parentNode) circleRect.parentNode.removeChild(circleRect);
+        document.getElementById('circleToolbar').style.display = 'none'; circleCanvas = null; circleRect = null;
+      }
+    }
+    function circleDown(e) { if (circleRect && circleRect.parentNode) circleRect.parentNode.removeChild(circleRect); document.getElementById('circleToolbar').style.display='none'; var pane=document.getElementById('previewPane'); var r=pane.getBoundingClientRect(); circleStart={x:e.clientX-r.left+pane.scrollLeft,y:e.clientY-r.top+pane.scrollTop}; circleRect=document.createElement('div'); circleRect.className='circle-select-rect'; pane.appendChild(circleRect); }
+    function circleMove(e) { if(!circleStart||!circleRect) return; var pane=document.getElementById('previewPane'); var r=pane.getBoundingClientRect(); var cx=e.clientX-r.left+pane.scrollLeft,cy=e.clientY-r.top+pane.scrollTop; circleRect.style.left=Math.min(circleStart.x,cx)+'px'; circleRect.style.top=Math.min(circleStart.y,cy)+'px'; circleRect.style.width=Math.abs(cx-circleStart.x)+'px'; circleRect.style.height=Math.abs(cy-circleStart.y)+'px'; }
+    function circleUp(e) { if(!circleStart||!circleRect) return; var w=parseInt(circleRect.style.width),h=parseInt(circleRect.style.height); if(w<10||h<10){if(circleRect.parentNode)circleRect.parentNode.removeChild(circleRect);circleStart=null;return;} var toolbar=document.getElementById('circleToolbar'); var pane=document.getElementById('previewPane'); var pr=pane.getBoundingClientRect(); toolbar.style.left=(pr.left+parseInt(circleRect.style.left)+w/2-80+window.scrollX)+'px'; toolbar.style.top=(pr.top+parseInt(circleRect.style.top)+h+10+window.scrollY)+'px'; toolbar.style.display='block'; circleStart=null; }
+    function doCircleAnnotate() { document.getElementById('circleToolbar').style.display='none'; var floatAnn=document.getElementById('floatingAnnotation'); document.getElementById('floatLine').value=0; document.getElementById('floatEndLine').value=0; document.getElementById('floatLineInfo').textContent='⭕ 圈选区域批注'; var pane=document.getElementById('previewPane'); var pr=pane.getBoundingClientRect(); floatAnn.style.left=(pr.left+parseInt(circleRect.style.left)+window.scrollX)+'px'; floatAnn.style.top=(pr.top+parseInt(circleRect.style.top)+parseInt(circleRect.style.height)+50+window.scrollY)+'px'; floatAnn.style.display='block'; document.getElementById('floatContent').focus(); }
+    function cancelCircle() { document.getElementById('circleToolbar').style.display='none'; if(circleRect&&circleRect.parentNode)circleRect.parentNode.removeChild(circleRect); }
+    </script>`;
   }
 
   return page(`${filePath} — ${space.name}`, user, `
