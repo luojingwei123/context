@@ -1678,7 +1678,7 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
         <div class="split-header" style="justify-content:space-between;">
           <span>📄 ${esc(filePath)} <span class="save-indicator" id="saveStatus">✅ 已保存</span> <span id="annBadge" class="ann-badge" style="display:none;">0</span></span>
           <div style="display:flex;gap:4px;align-items:center;">
-            <button class="btn-small" onclick="toggleRegionMode()" title="框选批注">🖱️ 框选</button>
+            <button id="regionBtn" class="btn-small" onclick="toggleRegionMode()" title="框选批注">🖱️ 框选</button>
             <button class="btn-small" onclick="doCopyRef()" title="复制引用">🔗 引用</button>
             <div style="position:relative;display:inline-block;" id="downloadMenu">
               <button class="btn-small" onclick="document.getElementById('downloadDropdown').style.display=document.getElementById('downloadDropdown').style.display==='block'?'none':'block'" title="下载">⬇️ 下载</button>
@@ -1864,8 +1864,9 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
           quote +
           '<div class="ann-card-content">' + escH(a.content) + '</div>' +
           '<div class="ann-card-actions">' +
-            '<form method="POST" action="/s/'+SPACE_ID+'/resolve-annotation/'+a.id+'" style="display:inline;" onclick="event.stopPropagation()"><input type="hidden" name="filePath" value="'+FILE_PATH+'"><button type="submit" class="btn-small" style="font-size:11px;">✅ 处理</button></form> ' +
-            '<form method="POST" action="/s/'+SPACE_ID+'/annotation-to-task/'+a.id+'" style="display:inline;" onclick="event.stopPropagation()"><input type="hidden" name="filePath" value="'+FILE_PATH+'"><button type="submit" class="btn-small" style="font-size:11px;">📋 任务</button></form>' +
+            '<form method="POST" action="/s/'+SPACE_ID+'/resolve-annotation/'+a.id+'" style="display:inline;" onclick="event.stopPropagation()"><input type="hidden" name="filePath" value="'+FILE_PATH+'"><button type="submit" class="btn-small" style="font-size:11px;">📦 归档</button></form> ' +
+            '<form method="POST" action="/s/'+SPACE_ID+'/annotation-to-task/'+a.id+'" style="display:inline;" onclick="event.stopPropagation()"><input type="hidden" name="filePath" value="'+FILE_PATH+'"><button type="submit" class="btn-small" style="font-size:11px;">📋 转任务</button></form> ' +
+            '<button class="btn-small" style="font-size:11px;" onclick="event.stopPropagation();sendAnnToGroup('+i+')">📢 发到群</button>' +
           '</div>' +
         '</div>';
       }).join('');
@@ -2100,6 +2101,7 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
         if (data.annotation) {
           serverAnns.unshift(data.annotation);
           renderAnnBubbles();
+          updateCartBadge();
           showToast('✅ 评论已添加');
         }
         hideAnnInput();
@@ -2177,17 +2179,18 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
       var btn = document.getElementById('regionBtn');
       var bar = document.getElementById('regionModeBar');
       if (regionMode) {
-        btn.style.background = 'var(--primary)'; btn.style.color = '#fff';
-        bar.style.display = 'flex';
+        if(btn){btn.style.background = 'var(--primary)'; btn.style.color = '#fff';}
+        if(bar) bar.style.display = 'flex';
         document.addEventListener('mousedown', onRegionStart);
+        showToast('🖱️ 框选模式：拖动选择区域后添加批注');
       } else { exitRegionMode(); }
     }
     function exitRegionMode() {
       regionMode = false;
       var btn = document.getElementById('regionBtn');
       var bar = document.getElementById('regionModeBar');
-      btn.style.background = ''; btn.style.color = '';
-      bar.style.display = 'none';
+      if(btn){btn.style.background = ''; btn.style.color = '';}
+      if(bar) bar.style.display = 'none';
       hideDragBox();
       document.removeEventListener('mousedown', onRegionStart);
     }
@@ -2244,7 +2247,7 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
     }
 
     // ── Annotation list rendering ──
-    var serverAnns = ${JSON.stringify(openAnns.map((a: any) => ({ id: a.id, line: a.line, endLine: a.endLine, content: a.content, author: a.author, authorType: a.authorType, createdAt: a.createdAt })))};
+    var serverAnns = ${JSON.stringify(openAnns.map((a: any) => ({ id: a.id, line: a.line, endLine: a.endLine, content: a.content, author: a.author, authorType: a.authorType, createdAt: a.createdAt, selectedText: a.selectedText || '' })))};
     function renderAnnList() {
       var badge = document.getElementById('annBadge');
       if (serverAnns.length === 0) {
@@ -2340,7 +2343,22 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
         if (!e.target.closest('#cartPanel,#cartFab')) { panel.remove(); cartOpen = false; document.removeEventListener('click', closeCart); }
       });
     }
-    function updateCartBadge() { var b = document.getElementById('cartBadge'); b.style.display = serverAnns.length > 0 ? 'flex' : 'none'; b.textContent = serverAnns.length; }
+    function updateCartBadge() { var b = document.getElementById('cartBadge'); if(b){b.style.display = serverAnns.length > 0 ? 'flex' : 'none'; b.textContent = serverAnns.length;} }
+    // Send annotation to group chat via notify API
+    function sendAnnToGroup(idx) {
+      var a = serverAnns[idx];
+      if (!a) return;
+      var msg = '💬 批注 by ' + a.author + ':\\n';
+      if (a.selectedText) msg += '> ' + a.selectedText.substring(0,100) + '\\n';
+      msg += a.content;
+      fetch('/api/spaces/' + SPACE_ID + '/notify', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: msg })
+      }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.success) showToast('📢 已发到群');
+        else showToast('❌ 发送失败');
+      }).catch(function() { showToast('❌ 发送失败'); });
+    }
 
     // Close download dropdown on outside click
     document.addEventListener('click', function(e) {
