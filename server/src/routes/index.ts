@@ -10,6 +10,7 @@
 import { Router } from "express";
 import mammoth from "mammoth";
 import crypto from "crypto";
+import multer from "multer";
 import * as storage from "../storage/index.js";
 import { getTemplate } from "../templates/index.js";
 import * as menuRegistry from "../menu/index.js";
@@ -360,10 +361,14 @@ router.post("/spaces/:id/notify", async (req, res) => {
         lines.push(`📋 批注任务 #${i + 1}`);
         lines.push(`━━━━━━━━━━━━`);
         lines.push(`📄 文件：${a.filePath || filePath || "未知"}`);
-        if (a.line > 0) lines.push(`📍 位置：第${a.line}行`);
+        if (a.line > 0) {
+          if (a.endLine > a.line) lines.push(`📍 位置：第${a.line}-${a.endLine}行`);
+          else lines.push(`📍 位置：第${a.line}行`);
+        }
         lines.push(`📝 批注人：${a.author}`);
         lines.push(`💬 要求：${a.content}`);
         if (a.selectedText) lines.push(`📎 原文：「${a.selectedText}」`);
+        if (a.screenshotUrl) lines.push(`🖼️ 截图：${a.screenshotUrl}`);
         const fp = encodeURIComponent(a.filePath || filePath || "");
         if (fp) lines.push(`🔗 查看：${baseUrl}/s/${req.params.id}/file/${fp}`);
         lines.push(`━━━━━━━━━━━━`);
@@ -406,6 +411,23 @@ router.post("/spaces/:id/notify", async (req, res) => {
       try { pushed = await sendViaDMWork(apiUrl, process.env.DMWORK_BOT_TOKEN); } catch (e) { console.error("[Notify] Env var push failed:", e); }
     }
     res.json({ success: true, pushed });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── Screenshot Upload API ───
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } });
+
+router.post("/spaces/:id/upload-screenshot", upload.single("file"), async (req: any, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: "file required" });
+    const spaceId = req.params.id;
+    const filename = `_screenshots/${Date.now()}_${req.file.originalname || "screenshot.png"}`;
+    // Store as binary blob
+    await storage.writeBinaryFile(spaceId, filename, req.file.buffer);
+    const baseUrl = `${req.protocol}://${req.get("host")}`;
+    const url = `${baseUrl}/api/spaces/${spaceId}/files/${filename}?raw=1`;
+    res.json({ success: true, url, path: filename });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1987,6 +2009,7 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
       📋<div id="cartBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ef4444;color:#fff;font-size:11px;font-weight:700;min-width:20px;height:20px;border-radius:10px;display:none;align-items:center;justify-content:center;padding:0 5px;">0</div>
     </div>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" crossorigin="anonymous"></script>
     <script>
     const SPACE_ID = '${spaceId}';
     const FILE_PATH = '${filePath.replace(/'/g, "\\'")}';
@@ -2552,23 +2575,70 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
     }
     function sendAnnsToGroup(anns) {
       if (!anns.length) { showToast('请选择要发送的批注'); return; }
+      
+      // For region annotations, try to capture screenshot
+      var pendingScreenshots = 0;
       var annotations = anns.map(function(a) {
         return {
           author: a.author || 'unknown',
           content: a.content || '',
-          selectedText: (a.selectedText || '').substring(0, 200),
+          selectedText: (a.selectedText || '').substring(0, 300),
           line: a.line || 0,
-          filePath: FILE_PATH
+          endLine: a.endLine || 0,
+          filePath: FILE_PATH,
+          screenshotUrl: ''
         };
       });
-      fetch('/api/spaces/' + SPACE_ID + '/notify', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ annotations: annotations, filePath: FILE_PATH })
-      }).then(function(r) { return r.json(); }).then(function(d) {
-        if (d.success && d.pushed) showToast('📢 已发送 ' + anns.length + ' 条批注到群');
-        else if (d.success) showToast('📢 已保存，等待推送');
-        else showToast('❌ 发送失败: ' + (d.error || ''));
-      }).catch(function() { showToast('❌ 发送失败'); });
+      
+      // Try to capture screenshots for annotations with line ranges (region annotations)
+      function doSend() {
+        fetch('/api/spaces/' + SPACE_ID + '/notify', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ annotations: annotations, filePath: FILE_PATH })
+        }).then(function(r) { return r.json(); }).then(function(d) {
+          if (d.success && d.pushed) showToast('📢 已发送 ' + anns.length + ' 条批注到群');
+          else if (d.success) showToast('📢 已保存，等待推送');
+          else showToast('❌ 发送失败: ' + (d.error || ''));
+        }).catch(function() { showToast('❌ 发送失败'); });
+      }
+      
+      // Attempt screenshot capture for region annotations
+      var regionAnns = annotations.filter(function(a) { return a.endLine > a.line && a.line > 0; });
+      if (regionAnns.length > 0 && typeof html2canvas !== 'undefined') {
+        var panel = document.getElementById('previewPanel');
+        var elems = Array.prototype.slice.call(panel.querySelectorAll('p,h1,h2,h3,h4,h5,h6,li,tr,blockquote,div'));
+        if (elems.length === 0) elems = Array.prototype.slice.call(panel.children);
+        pendingScreenshots = regionAnns.length;
+        regionAnns.forEach(function(ann) {
+          // Find elements in line range
+          var startIdx = Math.max(0, ann.line - 1);
+          var endIdx = Math.min(elems.length - 1, ann.endLine - 1);
+          if (startIdx > endIdx || !elems[startIdx]) { pendingScreenshots--; if (pendingScreenshots <= 0) doSend(); return; }
+          // Create a wrapper for the range
+          var wrapper = document.createElement('div');
+          wrapper.style.cssText = 'position:absolute;left:-9999px;background:#fff;padding:16px;max-width:600px;';
+          for (var i = startIdx; i <= endIdx && i < elems.length; i++) {
+            wrapper.appendChild(elems[i].cloneNode(true));
+          }
+          document.body.appendChild(wrapper);
+          html2canvas(wrapper, { scale: 1, useCORS: true }).then(function(canvas) {
+            canvas.toBlob(function(blob) {
+              document.body.removeChild(wrapper);
+              if (!blob) { pendingScreenshots--; if (pendingScreenshots <= 0) doSend(); return; }
+              // Upload screenshot
+              var fd = new FormData();
+              fd.append('file', blob, 'screenshot_L' + ann.line + '-' + ann.endLine + '.png');
+              fetch('/api/spaces/' + SPACE_ID + '/upload-screenshot', { method: 'POST', body: fd })
+                .then(function(r) { return r.json(); })
+                .then(function(d) { if (d.url) ann.screenshotUrl = d.url; })
+                .catch(function() {})
+                .finally(function() { pendingScreenshots--; if (pendingScreenshots <= 0) doSend(); });
+            }, 'image/png');
+          }).catch(function() { document.body.removeChild(wrapper); pendingScreenshots--; if (pendingScreenshots <= 0) doSend(); });
+        });
+      } else {
+        doSend();
+      }
     }
 
     // Close download dropdown on outside click
