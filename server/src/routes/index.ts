@@ -65,7 +65,7 @@ router.get("/health", (_req, res) => {
   res.json({
     status: "ok",
     service: "context-server",
-    version: "1.10",
+    version: "1.11",
     pluginVersion: "1.0.8",
     updateCommand: "clawhub update context-collab --force",
   });
@@ -1296,23 +1296,25 @@ const CSS = `
   .split-pane { flex: 1; min-width: 0; overflow: auto; position: relative; }
   .split-pane-source { border-right: 1px solid var(--border); background: var(--bg-code); }
   .split-pane-source textarea { width: 100%; height: 100%; min-height: 500px; border: none; outline: none; padding: 16px; font-family: "SF Mono","Fira Code",Menlo,monospace; font-size: 13px; line-height: 1.6; resize: none; background: transparent; color: var(--text); tab-size: 2; }
-  .split-pane-preview { padding: 20px 24px; background: var(--bg-card); }
-  .split-pane-preview h1,.split-pane-preview h2,.split-pane-preview h3 { margin-top: 1em; margin-bottom: .5em; }
   .split-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; background: var(--bg-page); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--text-secondary); font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
   .split-header .save-indicator { font-size: 11px; color: var(--text-muted); font-weight: normal; text-transform: none; }
   .split-divider { width: 4px; background: var(--border); cursor: col-resize; flex-shrink: 0; transition: background .2s; }
   .split-divider:hover, .split-divider.dragging { background: var(--primary); }
-  /* Circle select overlay */
-  .circle-select-canvas { position: absolute; inset: 0; z-index: 50; cursor: crosshair; }
-  .circle-select-rect { position: absolute; border: 2px dashed #3b82f6; background: rgba(59,130,246,.08); border-radius: 4px; pointer-events: none; z-index: 51; }
-  .circle-toolbar { position: absolute; z-index: 9999; background: #1e293b; color: #fff; border-radius: 8px; padding: 8px 12px; box-shadow: 0 4px 16px rgba(0,0,0,.3); display: none; }
-  .circle-toolbar button { background: none; border: none; color: #fff; cursor: pointer; padding: 4px 10px; border-radius: 4px; font-size: 13px; }
-  .circle-toolbar button:hover { background: rgba(255,255,255,.15); }
-  /* Mode toggle */
-  .view-mode-toggle { display: inline-flex; background: var(--bg-code); border-radius: var(--radius); border: 1px solid var(--border); overflow: hidden; }
-  .view-mode-toggle button { padding: 6px 14px; font-size: 12px; border: none; background: none; cursor: pointer; color: var(--text-secondary); font-weight: 500; }
-  .view-mode-toggle button.active { background: var(--primary); color: #fff; }
-  .view-mode-toggle button:hover:not(.active) { background: var(--bg-hover); }
+  /* Right panel tabs */
+  .right-tabs { display: flex; gap: 0; }
+  .right-tab { padding: 8px 16px; font-size: 13px; cursor: pointer; border-bottom: 2px solid transparent; color: var(--text-muted); font-weight: 500; background: none; border-top: none; border-left: none; border-right: none; transition: all .15s; }
+  .right-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+  .right-tab:hover { color: var(--text); }
+  .ann-badge { display: inline-flex; align-items: center; justify-content: center; background: #ef4444; color: #fff; font-size: 10px; font-weight: 700; min-width: 16px; height: 16px; border-radius: 8px; padding: 0 4px; margin-left: 4px; }
+  /* Annotation cards in sidebar */
+  .ann-card { padding: 10px 14px; background: var(--bg-page); border-radius: var(--radius); margin: 6px 10px; font-size: 13px; transition: background .15s; border-left: 3px solid transparent; }
+  .ann-card:hover { background: var(--bg-hover); border-left-color: var(--primary); }
+  .ann-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; font-size: 12px; color: var(--text-secondary); }
+  .ann-card-content { color: var(--text); line-height: 1.5; margin-bottom: 6px; }
+  .ann-card-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+  /* Text highlight for annotations */
+  .ann-highlight { background: #fef3c7; border-bottom: 2px solid #f59e0b; cursor: pointer; border-radius: 2px; }
+  .ann-highlight:hover { background: #fde68a; outline: 1px solid #f59e0b; }
   /* ── Hero ── */
   .hero { text-align: center; padding: 56px 24px 48px; position: relative; overflow: hidden; }
   .hero h1 { font-size: 40px; margin-bottom: 14px; letter-spacing: -.03em; background: linear-gradient(135deg, var(--text) 0%, var(--text-secondary) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
@@ -1627,78 +1629,197 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
         <span style="margin-left:12px;font-size:13px;color:var(--text-secondary);">${icons[ext] || "📄"} ${esc(filePath)} (${ext.toUpperCase()})</span>
       </div>
     </div>`;
+
   } else if (isMd) {
     const escapedContent = file.content.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$/g, '\\$');
     contentHtml = `
-    <div style="margin-bottom:8px;display:flex;align-items:center;gap:8px;">
-      <div class="view-mode-toggle" id="viewToggle">
-        <button class="active" data-mode="split" onclick="setViewMode('split')">📐 分屏</button>
-        <button data-mode="preview" onclick="setViewMode('preview')">👁️ 预览</button>
-        <button data-mode="source" onclick="setViewMode('source')">📝 源码</button>
-      </div>
-      <button id="circleBtn" onclick="toggleCircleMode()" class="btn" style="font-size:12px;padding:4px 12px;">⭕ 圈选</button>
-      <span id="circleHint" style="font-size:11px;color:var(--text-muted);display:none;">拖拽画框圈选区域，松手后可批注</span>
-    </div>
-    <div id="splitView" class="split-view">
+    <div class="split-view" id="splitView">
       <div class="split-pane split-pane-source" id="sourcePane">
-        <div class="split-header"><span>📝 源码 (可编辑)</span><span class="save-indicator" id="saveStatus">已保存</span></div>
+        <div class="split-header"><span>📝 源码</span><span class="save-indicator" id="saveStatus">已保存</span></div>
         <textarea id="sourceEditor" spellcheck="false" oninput="onSourceEdit()">${esc(file.content)}</textarea>
       </div>
       <div class="split-divider" id="splitDivider"></div>
-      <div class="split-pane split-pane-preview" id="previewPane" style="position:relative;">
-        <div class="split-header"><span>👁️ 预览 (可框选批注 / 可圈选)</span></div>
-        <div id="previewContent" style="padding:16px;">${mdToHtml(file.content)}</div>
+      <div class="split-pane" id="rightPane" style="display:flex;flex-direction:column;">
+        <div class="split-header" style="gap:0;padding:0;">
+          <div class="right-tabs" id="rightTabs">
+            <button class="right-tab active" data-tab="preview" onclick="switchRightTab('preview')">👁️ 预览</button>
+            <button class="right-tab" data-tab="annotations" onclick="switchRightTab('annotations')">💬 批注 <span id="annBadge" class="ann-badge" style="display:none;">0</span></button>
+          </div>
+          <div style="display:flex;gap:4px;padding:0 8px;">
+            <button id="regionBtn" onclick="toggleRegionMode()" class="btn-small" style="font-size:11px;" title="框选批注">🖱️ 框选</button>
+          </div>
+        </div>
+        <div id="previewPanel" class="right-panel" style="flex:1;overflow:auto;padding:20px 24px;">
+          ${mdToHtml(file.content)}
+        </div>
+        <div id="annPanel" class="right-panel" style="flex:1;overflow:auto;display:none;">
+          <div class="ann-sidebar-inner" id="annList"></div>
+        </div>
+      </div>
+    </div>`;
+  } else {
+    // Non-markdown text files
+    contentHtml = `
+    <div class="split-view" id="splitView">
+      <div class="split-pane split-pane-source" id="sourcePane">
+        <div class="split-header"><span>📝 源码</span><span class="save-indicator" id="saveStatus">已保存</span></div>
+        <textarea id="sourceEditor" spellcheck="false" oninput="onSourceEdit()">${esc(file.content)}</textarea>
+      </div>
+      <div class="split-divider" id="splitDivider"></div>
+      <div class="split-pane" id="rightPane" style="display:flex;flex-direction:column;">
+        <div class="split-header" style="gap:0;padding:0;">
+          <div class="right-tabs" id="rightTabs">
+            <button class="right-tab active" data-tab="preview" onclick="switchRightTab('preview')">👁️ 预览</button>
+            <button class="right-tab" data-tab="annotations" onclick="switchRightTab('annotations')">💬 批注 <span id="annBadge" class="ann-badge" style="display:none;">0</span></button>
+          </div>
+          <div style="display:flex;gap:4px;padding:0 8px;">
+            <button id="regionBtn" onclick="toggleRegionMode()" class="btn-small" style="font-size:11px;">🖱️ 框选</button>
+          </div>
+        </div>
+        <div id="previewPanel" class="right-panel" style="flex:1;overflow:auto;">
+          <table class="code-table">${numberedContent}</table>
+        </div>
+        <div id="annPanel" class="right-panel" style="flex:1;overflow:auto;display:none;">
+          <div class="ann-sidebar-inner" id="annList"></div>
+        </div>
+      </div>
+    </div>`;
+  }
+  return page(`${filePath} — ${space.name}`, user, `
+    <div class="breadcrumb">
+      <a href="/s/${spaceId}">${esc(space.name)}</a> <span>/</span> <b>${esc(filePath)}</b>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h1 style="font-size:18px;">${esc(filePath)}</h1>
+        <div class="btn-group">
+          <button class="btn" onclick="showRefModal()">🔗 引用</button>
+          <a href="/s/${spaceId}/edit/${filePath}" class="btn">✏️ 编辑</a>
+          <a href="/s/${spaceId}/history/${filePath}" class="btn">📜 历史</a>
+          <form method="POST" action="/s/${spaceId}/delete/${filePath}" style="display:inline;" onsubmit="return confirm('确定删除？')">
+            <button type="submit" class="btn btn-danger">🗑️</button>
+          </form>
+        </div>
+      </div>
+      <div class="meta">
+        v${file.version} · ${esc(file.modifiedBy || "unknown")} · ${new Date(file.updatedAt).toLocaleString("zh-CN")} · ${file.size}B
+        ${openAnns.length > 0 ? ` · <b style="color:var(--warning);">💬 ${openAnns.length} 条批注</b>` : ''}
       </div>
     </div>
-    <div id="circleToolbar" class="circle-toolbar">
-      <button onclick="doCircleAnnotate()">💬 批注此区域</button>
-      <button onclick="cancelCircle()">✕ 取消</button>
-    </div>
-    <script>
-    // ── Source content for live preview ──
-    var sourceContent = \`${escapedContent}\`;
 
-    // ── View mode toggle ──
-    function setViewMode(mode) {
-      var btns = document.querySelectorAll('#viewToggle button');
-      btns.forEach(function(b) { b.classList.toggle('active', b.dataset.mode === mode); });
-      var src = document.getElementById('sourcePane');
-      var div = document.getElementById('splitDivider');
-      var prev = document.getElementById('previewPane');
-      if (mode === 'split') { src.style.display='block'; div.style.display='block'; prev.style.display='block'; }
-      else if (mode === 'preview') { src.style.display='none'; div.style.display='none'; prev.style.display='block'; }
-      else { src.style.display='block'; div.style.display='block'; prev.style.display='none'; }
+    <!-- Region mode bar -->
+    <div id="regionModeBar" style="display:none;position:sticky;top:0;background:var(--primary);color:#fff;padding:8px 16px;z-index:200;border-radius:var(--radius);margin-bottom:8px;display:none;align-items:center;justify-content:space-between;font-size:13px;">
+      <span>🖱️ 框选模式 · 在预览区拖拽选取区域</span>
+      <button onclick="exitRegionMode()" style="background:rgba(255,255,255,.2);border:none;color:#fff;padding:4px 12px;border-radius:var(--radius);cursor:pointer;font-size:12px;">✕ 退出</button>
+    </div>
+
+    ${contentHtml}
+
+    <!-- Floating toolbar (appears on text selection) -->
+    <div id="floatToolbar" style="display:none;position:fixed;background:#1e293b;color:#fff;border-radius:8px;padding:4px 6px;box-shadow:0 4px 12px rgba(0,0,0,.3);z-index:9999;font-size:13px;white-space:nowrap;">
+      <button onclick="doAnnotate()" style="background:none;border:none;color:#fff;cursor:pointer;padding:4px 10px;border-radius:4px;font-size:13px;">📝 批注</button>
+      <button onclick="doCopyRef()" style="background:none;border:none;color:#fff;cursor:pointer;padding:4px 10px;border-radius:4px;font-size:13px;">🔗 引用</button>
+      <button onclick="doCopyText()" style="background:none;border:none;color:#fff;cursor:pointer;padding:4px 10px;border-radius:4px;font-size:13px;">📋 复制</button>
+    </div>
+
+    <!-- Annotation input box (appears near selection) -->
+    <div id="annInputBox" style="display:none;position:fixed;width:340px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-md);padding:14px;z-index:9998;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <b style="font-size:13px;">📝 添加批注</b>
+        <span onclick="hideAnnInput()" style="cursor:pointer;font-size:18px;color:var(--text-muted);">✕</span>
+      </div>
+      <div id="annQuote" style="font-size:12px;color:var(--text-secondary);padding:6px 8px;background:#fef3c7;border-radius:4px;border-left:3px solid #f59e0b;margin-bottom:8px;max-height:50px;overflow:hidden;"></div>
+      <form method="POST" action="/s/${spaceId}/annotate" id="annForm">
+        <input type="hidden" name="filePath" value="${esc(filePath)}">
+        <input type="hidden" name="line" id="annLine" value="0">
+        <input type="hidden" name="endLine" id="annEndLine" value="0">
+        <textarea name="content" id="annContent" style="width:100%;height:60px;font-size:13px;border:1px solid var(--border);border-radius:var(--radius);padding:8px;resize:none;" placeholder="输入批注（如：这段改成更口语化的表达）" required></textarea>
+        <div style="display:flex;gap:8px;margin-top:8px;align-items:center;">
+          <input name="author" id="annAuthor" value="${esc((user && user.displayName) || "")}" placeholder="你的名字" style="flex:1;font-size:13px;">
+          <button type="submit" class="btn btn-primary" style="padding:6px 14px;font-size:13px;">💬 提交</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Region annotation input -->
+    <div id="regionInputBox" style="display:none;position:fixed;width:300px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-md);padding:14px;z-index:500;">
+      <div id="regionThumb" style="background:linear-gradient(135deg,#f0ecff,#e8e4ff);border:1px dashed var(--primary);border-radius:var(--radius);padding:8px;text-align:center;font-size:11px;color:var(--primary);margin-bottom:8px;">📐 已选区域</div>
+      <form method="POST" action="/s/${spaceId}/annotate">
+        <input type="hidden" name="filePath" value="${esc(filePath)}">
+        <input type="hidden" name="line" value="0">
+        <input type="hidden" name="endLine" value="0">
+        <textarea name="content" id="regionTextarea" style="width:100%;height:70px;border:1px solid var(--border);border-radius:var(--radius);padding:8px;font-size:13px;resize:none;" placeholder="输入框选区域的批注" required></textarea>
+        <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:8px;">
+          <button type="button" class="btn" style="padding:4px 10px;font-size:12px;" onclick="hideRegionInput()">取消</button>
+          <input type="hidden" name="author" value="${esc((user && user.displayName) || "")}">
+          <button type="submit" class="btn btn-primary" style="padding:4px 10px;font-size:12px;">📝 添加批注</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Reference modal -->
+    <div id="refModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:200;align-items:center;justify-content:center;">
+      <div style="background:var(--bg-card);border-radius:var(--radius-lg);width:90%;max-width:440px;box-shadow:var(--shadow-md);">
+        <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
+          <b>🔗 引用文件</b>
+          <button onclick="hideRefModal()" style="background:none;border:none;cursor:pointer;font-size:16px;color:var(--text-muted);">✕</button>
+        </div>
+        <div style="padding:18px;">
+          <div id="refPreview" style="display:none;font-size:12px;color:var(--text-secondary);background:#fef3c7;padding:6px 10px;border-radius:4px;border-left:3px solid #f59e0b;margin-bottom:10px;"></div>
+          <p style="font-size:13px;color:var(--text-secondary);margin-bottom:8px;">引用链接：</p>
+          <div id="refCode" onclick="navigator.clipboard.writeText(this.textContent);showToast('✅ 已复制')" style="background:var(--bg-code);border:1px solid var(--border);border-radius:var(--radius);padding:10px;font-family:monospace;font-size:12px;word-break:break-all;color:var(--primary);cursor:pointer;" title="点击复制"></div>
+        </div>
+        <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px;">
+          <button class="btn" onclick="hideRefModal()">取消</button>
+          <button class="btn btn-primary" onclick="navigator.clipboard.writeText(document.getElementById('refCode').textContent);showToast('✅ 已复制');hideRefModal();">📋 复制</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cart FAB -->
+    <div id="cartFab" onclick="toggleCartPanel()" style="position:fixed;bottom:24px;right:24px;width:56px;height:56px;background:var(--primary);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:24px;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.3);z-index:40;" title="查看所有批注清单">
+      📋<div id="cartBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#ef4444;color:#fff;font-size:11px;font-weight:700;min-width:20px;height:20px;border-radius:10px;display:none;align-items:center;justify-content:center;padding:0 5px;">0</div>
+    </div>
+
+    <script>
+    const SPACE_ID = '${spaceId}';
+    const FILE_PATH = '${filePath.replace(/'/g, "\\'")}';
+    const CTX_URL = location.origin + '/ctx/${spaceId}/${filePath.replace(/'/g, "\\'")}';
+    const BASE_URL = location.origin;
+    const IS_MD = ${filePath.match(/\.(md|markdown)$/i) ? 'true' : 'false'};
+    let selectedText = '', selStartLine = 0, selEndLine = 0;
+    let _tempHighlight = null;
+
+    // ── Right panel tab switching ──
+    function switchRightTab(tab) {
+      document.querySelectorAll('.right-tab').forEach(function(b) { b.classList.toggle('active', b.dataset.tab === tab); });
+      document.getElementById('previewPanel').style.display = tab === 'preview' ? 'block' : 'none';
+      document.getElementById('annPanel').style.display = tab === 'annotations' ? 'block' : 'none';
     }
 
-    // ── Live edit → preview ──
+    // ── Live edit → preview (md only) ──
     var saveTimer = null;
     function onSourceEdit() {
       var ta = document.getElementById('sourceEditor');
-      var preview = document.getElementById('previewContent');
-      preview.innerHTML = miniMdToHtml(ta.value);
+      if (IS_MD) {
+        document.getElementById('previewPanel').innerHTML = miniMdToHtml(ta.value);
+      }
       document.getElementById('saveStatus').textContent = '● 未保存';
       document.getElementById('saveStatus').style.color = '#f59e0b';
       clearTimeout(saveTimer);
       saveTimer = setTimeout(function() { autoSave(ta.value); }, 2000);
     }
-
     function autoSave(content) {
-      fetch('/api/spaces/${spaceId}/files/${filePath.replace(/'/g, "\\'")}', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+      fetch('/api/spaces/' + SPACE_ID + '/files/' + FILE_PATH, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: content, modifiedBy: '${esc((user && user.displayName) || "web-user")}' })
       }).then(function(r) {
-        if (r.ok) {
-          document.getElementById('saveStatus').textContent = '✓ 已自动保存';
-          document.getElementById('saveStatus').style.color = '#22c55e';
-        }
-      }).catch(function() {
-        document.getElementById('saveStatus').textContent = '✕ 保存失败';
-        document.getElementById('saveStatus').style.color = '#ef4444';
-      });
+        if (r.ok) { document.getElementById('saveStatus').textContent = '✓ 已保存'; document.getElementById('saveStatus').style.color = '#22c55e'; }
+      }).catch(function() { document.getElementById('saveStatus').textContent = '✕ 保存失败'; document.getElementById('saveStatus').style.color = '#ef4444'; });
     }
 
-    // ── Mini markdown renderer (client-side) ──
+    // ── Mini markdown renderer ──
     function miniMdToHtml(md) {
       var h = md.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
       h = h.replace(/\`\`\`(\\w*)\\n([\\s\\S]*?)\`\`\`/g, '<pre><code>$2</code></pre>');
@@ -1714,176 +1835,13 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
       h = h.replace(/^- (.+)$/gm, '<li>$1</li>');
       h = h.replace(/(<li>[\\s\\S]*?<\\/li>\\n?)+/g, '<ul>$&</ul>');
       h = h.replace(/\\n\\n/g, '</p><p>');
-      h = '<p>' + h + '</p>';
-      h = h.replace(/<p>\\s*<\\/p>/g, '');
-      return h;
+      return '<p>' + h + '</p>';
     }
 
     // ── Resizable split divider ──
     (function() {
       var divider = document.getElementById('splitDivider');
-      var split = document.getElementById('splitView');
-      var src = document.getElementById('sourcePane');
-      var isDragging = false;
-      divider.addEventListener('mousedown', function(e) {
-        isDragging = true; divider.classList.add('dragging');
-        e.preventDefault();
-      });
-      document.addEventListener('mousemove', function(e) {
-        if (!isDragging) return;
-        var rect = split.getBoundingClientRect();
-        var pct = ((e.clientX - rect.left) / rect.width) * 100;
-        pct = Math.max(20, Math.min(80, pct));
-        src.style.flex = 'none'; src.style.width = pct + '%';
-      });
-      document.addEventListener('mouseup', function() {
-        isDragging = false; divider.classList.remove('dragging');
-      });
-    })();
-
-    // ── Circle select mode ──
-    var circleMode = false;
-    var circleCanvas = null;
-    var circleRect = null;
-    var circleStart = null;
-
-    function toggleCircleMode() {
-      circleMode = !circleMode;
-      var btn = document.getElementById('circleBtn');
-      var hint = document.getElementById('circleHint');
-      var preview = document.getElementById('previewPane');
-      if (circleMode) {
-        btn.style.background = '#3b82f6'; btn.style.color = '#fff';
-        hint.style.display = 'inline';
-        // Create overlay canvas
-        circleCanvas = document.createElement('div');
-        circleCanvas.className = 'circle-select-canvas';
-        circleCanvas.addEventListener('mousedown', circleDown);
-        circleCanvas.addEventListener('mousemove', circleMove);
-        circleCanvas.addEventListener('mouseup', circleUp);
-        preview.style.position = 'relative';
-        preview.appendChild(circleCanvas);
-      } else {
-        btn.style.background = ''; btn.style.color = '';
-        hint.style.display = 'none';
-        if (circleCanvas && circleCanvas.parentNode) circleCanvas.parentNode.removeChild(circleCanvas);
-        if (circleRect && circleRect.parentNode) circleRect.parentNode.removeChild(circleRect);
-        document.getElementById('circleToolbar').style.display = 'none';
-        circleCanvas = null; circleRect = null;
-      }
-    }
-
-    function circleDown(e) {
-      if (circleRect && circleRect.parentNode) circleRect.parentNode.removeChild(circleRect);
-      document.getElementById('circleToolbar').style.display = 'none';
-      var pane = document.getElementById('previewPane');
-      var r = pane.getBoundingClientRect();
-      circleStart = { x: e.clientX - r.left + pane.scrollLeft, y: e.clientY - r.top + pane.scrollTop };
-      circleRect = document.createElement('div');
-      circleRect.className = 'circle-select-rect';
-      pane.appendChild(circleRect);
-    }
-
-    function circleMove(e) {
-      if (!circleStart || !circleRect) return;
-      var pane = document.getElementById('previewPane');
-      var r = pane.getBoundingClientRect();
-      var cx = e.clientX - r.left + pane.scrollLeft;
-      var cy = e.clientY - r.top + pane.scrollTop;
-      var x = Math.min(circleStart.x, cx), y = Math.min(circleStart.y, cy);
-      var w = Math.abs(cx - circleStart.x), h = Math.abs(cy - circleStart.y);
-      circleRect.style.left = x + 'px'; circleRect.style.top = y + 'px';
-      circleRect.style.width = w + 'px'; circleRect.style.height = h + 'px';
-    }
-
-    function circleUp(e) {
-      if (!circleStart || !circleRect) return;
-      var w = parseInt(circleRect.style.width); var h = parseInt(circleRect.style.height);
-      if (w < 10 || h < 10) { if (circleRect.parentNode) circleRect.parentNode.removeChild(circleRect); circleStart = null; return; }
-      // Show toolbar near the rect
-      var toolbar = document.getElementById('circleToolbar');
-      var pane = document.getElementById('previewPane');
-      var pr = pane.getBoundingClientRect();
-      toolbar.style.left = (pr.left + parseInt(circleRect.style.left) + w/2 - 80 + window.scrollX) + 'px';
-      toolbar.style.top = (pr.top + parseInt(circleRect.style.top) + h + 10 + window.scrollY) + 'px';
-      toolbar.style.display = 'block';
-      circleStart = null;
-    }
-
-    function doCircleAnnotate() {
-      document.getElementById('circleToolbar').style.display = 'none';
-      var floatAnn = document.getElementById('floatingAnnotation');
-      document.getElementById('floatLine').value = 0;
-      document.getElementById('floatEndLine').value = 0;
-      document.getElementById('floatLineInfo').textContent = '⭕ 圈选区域批注';
-      var pane = document.getElementById('previewPane');
-      var pr = pane.getBoundingClientRect();
-      floatAnn.style.left = (pr.left + parseInt(circleRect.style.left) + window.scrollX) + 'px';
-      floatAnn.style.top = (pr.top + parseInt(circleRect.style.top) + parseInt(circleRect.style.height) + 50 + window.scrollY) + 'px';
-      floatAnn.style.display = 'block';
-      document.getElementById('floatContent').focus();
-    }
-
-    function cancelCircle() {
-      document.getElementById('circleToolbar').style.display = 'none';
-      if (circleRect && circleRect.parentNode) circleRect.parentNode.removeChild(circleRect);
-    }
-    </script>`;
-  } else {
-    // Non-markdown text files: same split view but with code highlighting
-    const escapedContent = file.content.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$/g, '\\$');
-    contentHtml = `
-    <div style="margin-bottom:8px;display:flex;align-items:center;gap:8px;">
-      <div class="view-mode-toggle" id="viewToggle">
-        <button class="active" data-mode="split" onclick="setViewMode('split')">📐 分屏</button>
-        <button data-mode="source" onclick="setViewMode('source')">📝 源码</button>
-      </div>
-      <button id="circleBtn" onclick="toggleCircleMode()" class="btn" style="font-size:12px;padding:4px 12px;">⭕ 圈选</button>
-    </div>
-    <div id="splitView" class="split-view">
-      <div class="split-pane split-pane-source" id="sourcePane">
-        <div class="split-header"><span>📝 源码 (可编辑)</span><span class="save-indicator" id="saveStatus">已保存</span></div>
-        <textarea id="sourceEditor" spellcheck="false" oninput="onSourceEdit()">${esc(file.content)}</textarea>
-      </div>
-      <div class="split-divider" id="splitDivider"></div>
-      <div class="split-pane split-pane-preview" id="previewPane" style="position:relative;">
-        <div class="split-header"><span>👁️ 带行号预览</span></div>
-        <div id="previewContent"><table class="code-table">${numberedContent}</table></div>
-      </div>
-    </div>
-    <div id="circleToolbar" class="circle-toolbar">
-      <button onclick="doCircleAnnotate()">💬 批注此区域</button>
-      <button onclick="cancelCircle()">✕ 取消</button>
-    </div>
-    <script>
-    function setViewMode(mode) {
-      var btns = document.querySelectorAll('#viewToggle button');
-      btns.forEach(function(b) { b.classList.toggle('active', b.dataset.mode === mode); });
-      var src = document.getElementById('sourcePane');
-      var div = document.getElementById('splitDivider');
-      var prev = document.getElementById('previewPane');
-      if (mode === 'split') { src.style.display='block'; div.style.display='block'; prev.style.display='block'; }
-      else if (mode === 'source') { src.style.display='block'; div.style.display='none'; prev.style.display='none'; }
-      else { src.style.display='none'; div.style.display='none'; prev.style.display='block'; }
-    }
-    var saveTimer = null;
-    function onSourceEdit() {
-      document.getElementById('saveStatus').textContent = '● 未保存';
-      document.getElementById('saveStatus').style.color = '#f59e0b';
-      clearTimeout(saveTimer);
-      saveTimer = setTimeout(function() {
-        var ta = document.getElementById('sourceEditor');
-        fetch('/api/spaces/${spaceId}/files/${filePath.replace(/'/g, "\\'")}', {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: ta.value, modifiedBy: '${esc((user && user.displayName) || "web-user")}' })
-        }).then(function(r) {
-          if (r.ok) { document.getElementById('saveStatus').textContent = '✓ 已自动保存'; document.getElementById('saveStatus').style.color = '#22c55e'; }
-        }).catch(function() { document.getElementById('saveStatus').textContent = '✕ 保存失败'; document.getElementById('saveStatus').style.color = '#ef4444'; });
-      }, 2000);
-    }
-    // Resizable divider
-    (function() {
-      var divider = document.getElementById('splitDivider');
+      if (!divider) return;
       var split = document.getElementById('splitView');
       var src = document.getElementById('sourcePane');
       var isDragging = false;
@@ -1891,216 +1849,213 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
       document.addEventListener('mousemove', function(e) { if (!isDragging) return; var rect = split.getBoundingClientRect(); var pct = ((e.clientX - rect.left) / rect.width) * 100; pct = Math.max(20, Math.min(80, pct)); src.style.flex = 'none'; src.style.width = pct + '%'; });
       document.addEventListener('mouseup', function() { isDragging = false; divider.classList.remove('dragging'); });
     })();
-    // Circle select
-    var circleMode = false, circleCanvas = null, circleRect = null, circleStart = null;
-    function toggleCircleMode() {
-      circleMode = !circleMode;
-      var btn = document.getElementById('circleBtn');
-      var preview = document.getElementById('previewPane');
-      if (circleMode) {
-        btn.style.background = '#3b82f6'; btn.style.color = '#fff';
-        circleCanvas = document.createElement('div'); circleCanvas.className = 'circle-select-canvas';
-        circleCanvas.addEventListener('mousedown', circleDown); circleCanvas.addEventListener('mousemove', circleMove); circleCanvas.addEventListener('mouseup', circleUp);
-        preview.style.position = 'relative'; preview.appendChild(circleCanvas);
-      } else {
-        btn.style.background = ''; btn.style.color = '';
-        if (circleCanvas && circleCanvas.parentNode) circleCanvas.parentNode.removeChild(circleCanvas);
-        if (circleRect && circleRect.parentNode) circleRect.parentNode.removeChild(circleRect);
-        document.getElementById('circleToolbar').style.display = 'none'; circleCanvas = null; circleRect = null;
-      }
-    }
-    function circleDown(e) { if (circleRect && circleRect.parentNode) circleRect.parentNode.removeChild(circleRect); document.getElementById('circleToolbar').style.display='none'; var pane=document.getElementById('previewPane'); var r=pane.getBoundingClientRect(); circleStart={x:e.clientX-r.left+pane.scrollLeft,y:e.clientY-r.top+pane.scrollTop}; circleRect=document.createElement('div'); circleRect.className='circle-select-rect'; pane.appendChild(circleRect); }
-    function circleMove(e) { if(!circleStart||!circleRect) return; var pane=document.getElementById('previewPane'); var r=pane.getBoundingClientRect(); var cx=e.clientX-r.left+pane.scrollLeft,cy=e.clientY-r.top+pane.scrollTop; circleRect.style.left=Math.min(circleStart.x,cx)+'px'; circleRect.style.top=Math.min(circleStart.y,cy)+'px'; circleRect.style.width=Math.abs(cx-circleStart.x)+'px'; circleRect.style.height=Math.abs(cy-circleStart.y)+'px'; }
-    function circleUp(e) { if(!circleStart||!circleRect) return; var w=parseInt(circleRect.style.width),h=parseInt(circleRect.style.height); if(w<10||h<10){if(circleRect.parentNode)circleRect.parentNode.removeChild(circleRect);circleStart=null;return;} var toolbar=document.getElementById('circleToolbar'); var pane=document.getElementById('previewPane'); var pr=pane.getBoundingClientRect(); toolbar.style.left=(pr.left+parseInt(circleRect.style.left)+w/2-80+window.scrollX)+'px'; toolbar.style.top=(pr.top+parseInt(circleRect.style.top)+h+10+window.scrollY)+'px'; toolbar.style.display='block'; circleStart=null; }
-    function doCircleAnnotate() { document.getElementById('circleToolbar').style.display='none'; var floatAnn=document.getElementById('floatingAnnotation'); document.getElementById('floatLine').value=0; document.getElementById('floatEndLine').value=0; document.getElementById('floatLineInfo').textContent='⭕ 圈选区域批注'; var pane=document.getElementById('previewPane'); var pr=pane.getBoundingClientRect(); floatAnn.style.left=(pr.left+parseInt(circleRect.style.left)+window.scrollX)+'px'; floatAnn.style.top=(pr.top+parseInt(circleRect.style.top)+parseInt(circleRect.style.height)+50+window.scrollY)+'px'; floatAnn.style.display='block'; document.getElementById('floatContent').focus(); }
-    function cancelCircle() { document.getElementById('circleToolbar').style.display='none'; if(circleRect&&circleRect.parentNode)circleRect.parentNode.removeChild(circleRect); }
-    </script>`;
-  }
 
-  return page(`${filePath} — ${space.name}`, user, `
-    <div class="breadcrumb">
-      <a href="/s/${spaceId}">${esc(space.name)}</a> <span>/</span> <b>${esc(filePath)}</b>
-    </div>
-
-    <div class="card">
-      <div class="card-header">
-        <h1 style="font-size:18px;">${esc(filePath)}</h1>
-        <div class="btn-group">
-          <a href="/s/${spaceId}/edit/${filePath}" class="btn">✏️ 编辑</a>
-          <a href="/s/${spaceId}/history/${filePath}" class="btn">📜 历史</a>
-          <form method="POST" action="/s/${spaceId}/delete/${filePath}" style="display:inline;" onsubmit="return confirm('确定删除？')">
-            <button type="submit" class="btn btn-danger">🗑️</button>
-          </form>
-        </div>
-      </div>
-      <div class="meta">
-        v${file.version} · ${esc(file.modifiedBy || "unknown")} · ${new Date(file.updatedAt).toLocaleString("zh-CN")} · ${file.size}B
-        ${openAnns.length > 0 ? ` · <b style="color:var(--warning);">💬 ${openAnns.length} 条批注</b>` : ''}
-      </div>
-    </div>
-
-    ${contentHtml}
-
-    <div class="card" style="margin-top:20px;">
-      <div class="card-header">
-        <h2 style="margin:0;">💬 批注 (${openAnns.length})</h2>
-      </div>
-      ${annListHtml}
-      ${resolvedHtml}
-    </div>
-
-    <div class="add-annotation" id="addAnnotation">
-      <h3>➕ 添加批注 <small style="font-weight:normal;color:var(--text-muted);">(在代码区框选文字可自动定位行号)</small></h3>
-      <p class="selection-hint" id="selectionHint" style="color:#0969da;font-size:13px;display:none;">
-        📌 已选中第 <span id="selStartLine">?</span>-<span id="selEndLine">?</span> 行
-      </p>
-      <form method="POST" action="/s/${spaceId}/annotate" id="annotateForm">
-        <input type="hidden" name="filePath" value="${esc(filePath)}">
-        <label>行号: <input name="line" id="annLine" type="number" min="0" max="${lines.length}" value="0" style="width:60px;"> </label>
-        <label>到: <input name="endLine" id="annEndLine" type="number" min="0" max="${lines.length}" value="0" style="width:60px;"></label>
-        <small>(0 = 全文批注)</small><br><br>
-        <textarea name="content" id="annContent" style="width:100%;height:80px;" placeholder="写下你的批注/修改意见..." required></textarea><br>
-        <label>批注人: <input name="author" value=""></label>
-        <button type="submit" style="margin-left:10px;">💬 提交批注</button>
-      </form>
-    </div>
-
-    <!-- 浮动工具栏（选中文字后在上方弹出） -->
-    <div id="selToolbar" style="display:none;position:absolute;background:#1e293b;color:#fff;border-radius:8px;padding:4px 6px;box-shadow:0 4px 12px rgba(0,0,0,.3);z-index:9999;font-size:13px;white-space:nowrap;">
-      <button onclick="doAnnotate()" style="background:none;border:none;color:#fff;cursor:pointer;padding:4px 10px;border-radius:4px;font-size:13px;">💬 批注</button>
-      <button onclick="doCopyRef()" style="background:none;border:none;color:#fff;cursor:pointer;padding:4px 10px;border-radius:4px;font-size:13px;">🔗 引用</button>
-      <button onclick="doCopyText()" style="background:none;border:none;color:#fff;cursor:pointer;padding:4px 10px;border-radius:4px;font-size:13px;">📋 复制</button>
-      <button onclick="doCreateTask()" style="background:none;border:none;color:#fff;cursor:pointer;padding:4px 10px;border-radius:4px;font-size:13px;">📌 任务</button>
-      <div style="position:absolute;bottom:-6px;left:50%;transform:translateX(-50%);width:12px;height:12px;background:#1e293b;transform:translateX(-50%) rotate(45deg);"></div>
-    </div>
-
-    <!-- 浮动批注输入框（出现在选中文字下方） -->
-    <div id="floatingAnnotation" style="display:none;position:absolute;width:360px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-md);padding:16px;z-index:9998;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-        <b>💬 添加批注</b>
-        <span id="floatClose" style="cursor:pointer;font-size:18px;color:var(--text-muted);">✕</span>
-      </div>
-      <p id="floatLineInfo" style="color:var(--primary);font-size:13px;margin:4px 0;"></p>
-      <form method="POST" action="/s/${spaceId}/annotate">
-        <input type="hidden" name="filePath" value="${esc(filePath)}">
-        <input type="hidden" name="line" id="floatLine" value="0">
-        <input type="hidden" name="endLine" id="floatEndLine" value="0">
-        <textarea name="content" id="floatContent" style="width:100%;height:60px;font-size:13px;border:1px solid var(--border);border-radius:var(--radius);padding:8px;" placeholder="写下修改意见..." required></textarea><br>
-        <div style="display:flex;gap:8px;margin-top:8px;align-items:center;">
-          <input name="author" placeholder="你的名字" style="flex:1;">
-          <button type="submit" class="btn btn-primary" style="padding:6px 14px;">💬 提交</button>
-        </div>
-      </form>
-    </div>
-
-    <script>
-    const SPACE_ID = '${spaceId}';
-    const FILE_PATH = '${filePath.replace(/'/g, "\\'")}';
-    const CTX_URL = location.origin + '/ctx/${spaceId}/${filePath}';
-
-    let selStartLine = 0, selEndLine = 0, selText = '';
-
-    // Close floating annotation
-    document.getElementById('floatClose').addEventListener('click', function() {
-      document.getElementById('floatingAnnotation').style.display = 'none';
-    });
-
-    // Hide toolbar on click elsewhere
-    document.addEventListener('mousedown', function(e) {
-      var toolbar = document.getElementById('selToolbar');
-      var floatAnn = document.getElementById('floatingAnnotation');
-      if (!toolbar.contains(e.target) && !floatAnn.contains(e.target)) {
-        toolbar.style.display = 'none';
-      }
-    });
-
-    // Show toolbar on text selection in code area
-    var codeTable = document.querySelector('.code-table');
-    if (codeTable) {
-      codeTable.addEventListener('mouseup', function(e) {
+    // ── Text selection → floating toolbar ──
+    var previewPanel = document.getElementById('previewPanel');
+    if (previewPanel) {
+      previewPanel.addEventListener('mouseup', function(e) {
+        if (regionMode) return;
         setTimeout(function() {
           var sel = window.getSelection();
           if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
-
-          selText = sel.toString().trim();
-
-          // Find line numbers
-          function findRow(node) {
-            while (node && node.tagName !== 'TR') node = node.parentElement;
-            return node;
-          }
+          selectedText = sel.toString().trim();
+          // Find line numbers from code-table if present
+          function findRow(node) { while (node && node.tagName !== 'TR') node = node.parentElement; return node; }
           var startRow = findRow(sel.anchorNode);
           var endRow = findRow(sel.focusNode);
-          if (!startRow || !endRow) return;
-
-          var rows = Array.from(document.querySelectorAll('.code-table tr'));
-          selStartLine = rows.indexOf(startRow) + 1;
-          selEndLine = rows.indexOf(endRow) + 1;
-          if (selStartLine > selEndLine) { var tmp = selStartLine; selStartLine = selEndLine; selEndLine = tmp; }
-
-          // Position toolbar above selection
+          if (startRow && endRow) {
+            var rows = Array.from(document.querySelectorAll('.code-table tr'));
+            selStartLine = rows.indexOf(startRow) + 1;
+            selEndLine = rows.indexOf(endRow) + 1;
+            if (selStartLine > selEndLine) { var tmp = selStartLine; selStartLine = selEndLine; selEndLine = tmp; }
+          }
           var rect = sel.getRangeAt(0).getBoundingClientRect();
-          var toolbar = document.getElementById('selToolbar');
-          toolbar.style.left = (rect.left + rect.width/2 - 120 + window.scrollX) + 'px';
-          toolbar.style.top = (rect.top + window.scrollY - 44) + 'px';
-          toolbar.style.display = 'block';
-
-          // Update bottom form too
-          document.getElementById('annLine').value = selStartLine;
-          document.getElementById('annEndLine').value = selEndLine;
-          document.getElementById('selStartLine').textContent = selStartLine;
-          document.getElementById('selEndLine').textContent = selEndLine;
-          document.getElementById('selectionHint').style.display = 'block';
+          var tb = document.getElementById('floatToolbar');
+          tb.style.left = (rect.left + rect.width/2 - 100) + 'px';
+          tb.style.top = (rect.top - 44) + 'px';
+          tb.style.display = 'block';
         }, 10);
       });
     }
+    document.addEventListener('mousedown', function(e) {
+      if (!e.target.closest('#floatToolbar') && !e.target.closest('#annInputBox')) {
+        document.getElementById('floatToolbar').style.display = 'none';
+      }
+    });
 
+    // ── Annotate action ──
     function doAnnotate() {
-      document.getElementById('selToolbar').style.display = 'none';
-      var floatAnn = document.getElementById('floatingAnnotation');
-      document.getElementById('floatLine').value = selStartLine;
-      document.getElementById('floatEndLine').value = selEndLine;
-      document.getElementById('floatLineInfo').textContent = '📌 第 ' + selStartLine + (selEndLine > selStartLine ? '-' + selEndLine : '') + ' 行';
-      var floatContent = document.getElementById('floatContent');
-      if (!floatContent.value) {
-        floatContent.placeholder = '针对: "' + selText.slice(0, 40) + (selText.length > 40 ? '...' : '') + '"';
-      }
-      // Position near selection
+      document.getElementById('floatToolbar').style.display = 'none';
+      // Auto-switch to annotations tab
+      switchRightTab('annotations');
+      // Temp highlight
       var sel = window.getSelection();
-      if (sel && !sel.isCollapsed) {
-        var rect = sel.getRangeAt(0).getBoundingClientRect();
-        floatAnn.style.position = 'absolute';
-        floatAnn.style.left = Math.max(10, rect.left + window.scrollX - 50) + 'px';
-        floatAnn.style.top = (rect.bottom + window.scrollY + 10) + 'px';
+      var rect = null;
+      if (sel && sel.rangeCount > 0) {
+        var range = sel.getRangeAt(0).cloneRange();
+        rect = range.getBoundingClientRect();
+        try {
+          if (_tempHighlight) { _tempHighlight.replaceWith(document.createTextNode(_tempHighlight.textContent)); _tempHighlight = null; }
+          var span = document.createElement('span');
+          span.style.cssText = 'background:#fef3c7;border-bottom:2px solid #f59e0b;border-radius:2px;';
+          range.surroundContents(span);
+          _tempHighlight = span;
+        } catch(e) {}
+        sel.removeAllRanges();
       }
-      floatAnn.style.display = 'block';
-      floatContent.focus();
+      var box = document.getElementById('annInputBox');
+      document.getElementById('annQuote').textContent = '「' + selectedText.substring(0, 80) + (selectedText.length > 80 ? '…' : '') + '」';
+      document.getElementById('annLine').value = selStartLine || 0;
+      document.getElementById('annEndLine').value = selEndLine || 0;
+      if (rect) {
+        box.style.left = Math.min(rect.left, window.innerWidth - 360) + 'px';
+        box.style.top = (rect.bottom + 8) + 'px';
+      }
+      box.style.display = 'block';
+      document.getElementById('annContent').focus();
+    }
+    function hideAnnInput() {
+      document.getElementById('annInputBox').style.display = 'none';
+      if (_tempHighlight) { _tempHighlight.replaceWith(document.createTextNode(_tempHighlight.textContent)); _tempHighlight = null; }
     }
 
+    // ── Copy ref / text ──
     function doCopyRef() {
-      document.getElementById('selToolbar').style.display = 'none';
+      document.getElementById('floatToolbar').style.display = 'none';
       var ref = CTX_URL + '#L' + selStartLine + (selEndLine > selStartLine ? '-L' + selEndLine : '');
-      navigator.clipboard.writeText(ref).then(function() { showToast('✅ 引用 URL 已复制'); });
+      navigator.clipboard.writeText(ref).then(function() { showToast('✅ 引用已复制'); });
     }
-
     function doCopyText() {
-      document.getElementById('selToolbar').style.display = 'none';
-      navigator.clipboard.writeText(selText).then(function() { showToast('✅ 已复制'); });
+      document.getElementById('floatToolbar').style.display = 'none';
+      navigator.clipboard.writeText(selectedText).then(function() { showToast('✅ 已复制'); });
     }
 
-    function doCreateTask() {
-      document.getElementById('selToolbar').style.display = 'none';
-      var content = selText.slice(0, 100);
-      fetch('/api/spaces/' + SPACE_ID + '/files/TASK.md').then(r => r.json()).then(data => {
-        var task = data.file ? data.file.content : '';
-        task += '\\n\\n### [ready] ' + content + ' (第' + selStartLine + '行, ' + FILE_PATH + ')';
-        return fetch('/api/spaces/' + SPACE_ID + '/files/TASK.md', {
-          method: 'PUT', headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({content: task, modifiedBy: 'web-user'})
-        });
-      }).then(function() { showToast('✅ 已创建任务'); }).catch(function() { showToast('❌ 创建失败'); });
+    // ── Reference modal ──
+    function showRefModal() {
+      var ref = CTX_URL;
+      document.getElementById('refCode').textContent = ref;
+      document.getElementById('refPreview').style.display = 'none';
+      var modal = document.getElementById('refModal');
+      modal.style.display = 'flex';
+    }
+    function hideRefModal() { document.getElementById('refModal').style.display = 'none'; }
+
+    // ── Region (box) select ──
+    var regionMode = false, regionStart = null, regionRect = null, dragBox = null;
+    function toggleRegionMode() {
+      regionMode = !regionMode;
+      var btn = document.getElementById('regionBtn');
+      var bar = document.getElementById('regionModeBar');
+      if (regionMode) {
+        btn.style.background = 'var(--primary)'; btn.style.color = '#fff';
+        bar.style.display = 'flex';
+        document.addEventListener('mousedown', onRegionStart);
+      } else { exitRegionMode(); }
+    }
+    function exitRegionMode() {
+      regionMode = false;
+      var btn = document.getElementById('regionBtn');
+      var bar = document.getElementById('regionModeBar');
+      btn.style.background = ''; btn.style.color = '';
+      bar.style.display = 'none';
+      hideDragBox();
+      document.removeEventListener('mousedown', onRegionStart);
+    }
+    function showDragBox(x,y,w,h) {
+      if (!dragBox) { dragBox = document.createElement('div'); dragBox.style.cssText = 'position:fixed;pointer-events:none;z-index:150;border:2px solid var(--primary);background:rgba(59,130,246,.08);border-radius:4px;'; document.body.appendChild(dragBox); }
+      dragBox.style.left = x+'px'; dragBox.style.top = y+'px'; dragBox.style.width = w+'px'; dragBox.style.height = h+'px'; dragBox.style.display = 'block';
+    }
+    function hideDragBox() { if (dragBox) dragBox.style.display = 'none'; }
+    function onRegionStart(e) {
+      if (e.button !== 0) return;
+      if (e.target.closest('#annInputBox,#regionInputBox,button,textarea,input,.ann-sidebar-inner,#regionModeBar,#floatToolbar,#refModal')) return;
+      regionStart = { x: e.clientX, y: e.clientY };
+      regionRect = null;
+      document.body.style.userSelect = 'none';
+      document.addEventListener('mousemove', onRegionMove, { capture: true });
+      document.addEventListener('mouseup', onRegionEnd, { capture: true });
+      e.preventDefault();
+    }
+    function onRegionMove(e) {
+      if (!regionStart) return;
+      var x = Math.min(e.clientX, regionStart.x), y = Math.min(e.clientY, regionStart.y);
+      var w = Math.abs(e.clientX - regionStart.x), h = Math.abs(e.clientY - regionStart.y);
+      regionRect = { x:x, y:y, w:w, h:h };
+      showDragBox(x, y, w, h);
+    }
+    function onRegionEnd(e) {
+      document.removeEventListener('mousemove', onRegionMove, { capture: true });
+      document.removeEventListener('mouseup', onRegionEnd, { capture: true });
+      document.body.style.userSelect = '';
+      if (!regionRect || regionRect.w < 20 || regionRect.h < 20) { hideDragBox(); regionStart = null; regionRect = null; return; }
+      regionStart = null;
+      // Auto-switch to annotations tab
+      switchRightTab('annotations');
+      // Show region input
+      var inputBox = document.getElementById('regionInputBox');
+      document.getElementById('regionThumb').textContent = '📐 已选区域 ' + Math.round(regionRect.w) + ' × ' + Math.round(regionRect.h) + ' px';
+      var left = Math.min(regionRect.x, window.innerWidth - 320);
+      var top = Math.min(regionRect.y + regionRect.h + 12, window.innerHeight - 220);
+      inputBox.style.left = left + 'px';
+      inputBox.style.top = top + 'px';
+      inputBox.style.display = 'block';
+      document.getElementById('regionTextarea').value = '';
+      setTimeout(function() { document.getElementById('regionTextarea').focus(); }, 50);
+    }
+    function hideRegionInput() {
+      document.getElementById('regionInputBox').style.display = 'none';
+      hideDragBox();
+      if (regionMode) document.addEventListener('mousedown', onRegionStart);
     }
 
+    // ── Annotation list rendering ──
+    var serverAnns = ${JSON.stringify(openAnns.map((a: any) => ({ id: a.id, line: a.line, endLine: a.endLine, content: a.content, author: a.author, authorType: a.authorType, createdAt: a.createdAt })))};
+    function renderAnnList() {
+      var list = document.getElementById('annList');
+      var badge = document.getElementById('annBadge');
+      if (serverAnns.length === 0) {
+        list.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px;">暂无批注<br>在预览区选中文字或框选区域开始批注 📝</div>';
+        badge.style.display = 'none';
+        return;
+      }
+      badge.style.display = 'inline-flex'; badge.textContent = serverAnns.length;
+      list.innerHTML = serverAnns.map(function(a, i) {
+        return '<div class="ann-card" data-idx="' + i + '" onclick="jumpToAnn(' + i + ')" style="cursor:pointer;">' +
+          '<div class="ann-card-header">' +
+            '<span>' + (a.authorType === 'human' ? '👤' : '🤖') + ' <b>' + escH(a.author) + '</b></span>' +
+            '<span style="font-size:11px;color:var(--text-muted);">' + (a.line > 0 ? '第' + a.line + (a.endLine > a.line ? '-' + a.endLine : '') + '行' : '全文') + '</span>' +
+          '</div>' +
+          '<div class="ann-card-content">' + escH(a.content) + '</div>' +
+          '<div class="ann-card-actions">' +
+            '<form method="POST" action="/s/${spaceId}/resolve-annotation/' + a.id + '" style="display:inline;"><input type="hidden" name="filePath" value="${esc(filePath)}"><button type="submit" class="btn-small">✅ 已处理</button></form>' +
+            '<form method="POST" action="/s/${spaceId}/annotation-to-task/' + a.id + '" style="display:inline;"><input type="hidden" name="filePath" value="${esc(filePath)}"><button type="submit" class="btn-small">📋 转任务</button></form>' +
+            '<form method="POST" action="/s/${spaceId}/annotation-to-chat/' + a.id + '" style="display:inline;"><input type="hidden" name="filePath" value="${esc(filePath)}"><button type="submit" class="btn-small">📢 发到群</button></form>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+    }
+    function escH(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+    // ── Jump to annotation position ──
+    function jumpToAnn(i) {
+      var a = serverAnns[i];
+      if (!a || !a.line) return;
+      var rows = document.querySelectorAll('.code-table tr');
+      var target = rows[a.line - 1];
+      if (target) {
+        switchRightTab('preview');
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        target.style.background = '#fde68a';
+        setTimeout(function() { target.style.background = ''; }, 2000);
+      }
+    }
+
+    // ── Cart panel ──
+    var cartOpen = false;
+    function toggleCartPanel() { /* placeholder for future cross-file cart */ showToast('📋 批注清单: ' + serverAnns.length + ' 条'); }
+    function updateCartBadge() { var b = document.getElementById('cartBadge'); b.style.display = serverAnns.length > 0 ? 'flex' : 'none'; b.textContent = serverAnns.length; }
+
+    // ── Toast ──
     function showToast(msg) {
       var t = document.createElement('div');
       t.className = 'toast toast-success';
@@ -2109,6 +2064,9 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
       setTimeout(function() { t.remove(); }, 3000);
     }
 
+    // Init
+    renderAnnList();
+    updateCartBadge();
     </script>
   `);
 }
