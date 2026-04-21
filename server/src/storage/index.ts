@@ -50,4 +50,11 @@ export {
   removeUserSpace,
   getUserSpaces,
   isUserInSpace,
+  // Bot Registry
+  registerBot,
+  listBots,
+  getBot,
+  getBotToken,
+  setSpaceNotifyBot,
+  getSpaceNotifyBot,
 } from "./db-storage.js";
