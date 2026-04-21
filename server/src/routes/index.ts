@@ -1733,14 +1733,14 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
         <span onclick="hideAnnInput()" style="cursor:pointer;font-size:18px;color:var(--text-muted);">✕</span>
       </div>
       <div id="annQuote" style="font-size:12px;color:var(--text-secondary);padding:6px 8px;background:#fef3c7;border-radius:4px;border-left:3px solid #f59e0b;margin-bottom:8px;max-height:50px;overflow:hidden;"></div>
-      <form method="POST" action="/s/${spaceId}/annotate" id="annForm">
+      <form id="annForm" onsubmit="return submitAnnAsync(event)">
         <input type="hidden" name="filePath" value="${esc(filePath)}">
         <input type="hidden" name="line" id="annLine" value="0">
         <input type="hidden" name="endLine" id="annEndLine" value="0">
         <textarea name="content" id="annContent" style="width:100%;height:60px;font-size:13px;border:1px solid var(--border);border-radius:var(--radius);padding:8px;resize:none;" placeholder="输入批注（如：这段改成更口语化的表达）" required></textarea>
         <div style="display:flex;gap:8px;margin-top:8px;align-items:center;">
           <input name="author" id="annAuthor" value="${esc((user && user.displayName) || "")}" placeholder="你的名字" style="flex:1;font-size:13px;">
-          <button type="submit" class="btn btn-primary" style="padding:6px 14px;font-size:13px;">💬 提交</button>
+          <button type="submit" id="annSubmitBtn" class="btn btn-primary" style="padding:6px 14px;font-size:13px;">💬 提交</button>
         </div>
       </form>
     </div>
@@ -1748,15 +1748,12 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
     <!-- Region annotation input -->
     <div id="regionInputBox" style="display:none;position:fixed;width:300px;background:#ffffff;border:1px solid #d1d5db;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.25);padding:16px;z-index:500;">
       <div id="regionThumb" style="background:linear-gradient(135deg,#f0ecff,#e8e4ff);border:1px dashed var(--primary);border-radius:var(--radius);padding:8px;text-align:center;font-size:11px;color:var(--primary);margin-bottom:8px;">📐 已选区域</div>
-      <form method="POST" action="/s/${spaceId}/annotate">
+      <form onsubmit="return submitRegionAnnAsync(event)">
         <input type="hidden" name="filePath" value="${esc(filePath)}">
-        <input type="hidden" name="line" value="0">
-        <input type="hidden" name="endLine" value="0">
         <textarea name="content" id="regionTextarea" style="width:100%;height:70px;border:1px solid var(--border);border-radius:var(--radius);padding:8px;font-size:13px;resize:none;" placeholder="输入框选区域的批注" required></textarea>
         <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:8px;">
           <button type="button" class="btn" style="padding:4px 10px;font-size:12px;" onclick="hideRegionInput()">取消</button>
-          <input type="hidden" name="author" value="${esc((user && user.displayName) || "")}">
-          <button type="submit" class="btn btn-primary" style="padding:4px 10px;font-size:12px;">📝 添加批注</button>
+          <button type="submit" id="regionSubmitBtn" class="btn btn-primary" style="padding:4px 10px;font-size:12px;">📝 添加批注</button>
         </div>
       </form>
     </div>
@@ -1894,7 +1891,7 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
         setTimeout(function() {
           var sel = window.getSelection();
           if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
-          selectedText = sel.toString().trim().substring(0, 500); // limit selection size
+          selectedText = sel.toString().trim().substring(0, 500);
           // Find line numbers from code-table if present
           function findRow(node) { while (node && node.tagName !== 'TR') node = node.parentElement; return node; }
           var startRow = findRow(sel.anchorNode);
@@ -1903,6 +1900,15 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
             var rows = Array.from(document.querySelectorAll('.code-table tr'));
             selStartLine = rows.indexOf(startRow) + 1;
             selEndLine = rows.indexOf(endRow) + 1;
+            if (selStartLine > selEndLine) { var tmp = selStartLine; selStartLine = selEndLine; selEndLine = tmp; }
+          } else {
+            // For MD preview: find nearest block element index
+            var elems = Array.from(previewPanel.querySelectorAll('h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,table,hr'));
+            function findBlock(node) { while (node && node.parentElement !== previewPanel && elems.indexOf(node) === -1) node = node.parentElement; return node; }
+            var sBlock = findBlock(sel.anchorNode);
+            var eBlock = findBlock(sel.focusNode);
+            if (sBlock) selStartLine = Math.max(1, elems.indexOf(sBlock) + 1);
+            if (eBlock) selEndLine = Math.max(selStartLine, elems.indexOf(eBlock) + 1);
             if (selStartLine > selEndLine) { var tmp = selStartLine; selStartLine = selEndLine; selEndLine = tmp; }
           }
           var rect = sel.getRangeAt(0).getBoundingClientRect();
@@ -1918,6 +1924,44 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
         document.getElementById('floatToolbar').style.display = 'none';
       }
     });
+
+    // ── Async annotation submit ──
+    function submitAnnAsync(e) {
+      e.preventDefault();
+      var btn = document.getElementById('annSubmitBtn');
+      var origText = btn.textContent;
+      btn.textContent = '⏳ 提交中...';
+      btn.disabled = true;
+      var body = {
+        filePath: FILE_PATH,
+        line: parseInt(document.getElementById('annLine').value) || 0,
+        endLine: parseInt(document.getElementById('annEndLine').value) || 0,
+        content: document.getElementById('annContent').value,
+        author: document.getElementById('annAuthor').value || '匿名',
+        authorType: 'human'
+      };
+      fetch('/api/spaces/' + SPACE_ID + '/annotations', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      }).then(function(r) { return r.json(); }).then(function(data) {
+        if (data.annotation) {
+          serverAnns.push(data.annotation);
+          renderAnnBubbles();
+          renderAnnList();
+          var badge = document.getElementById('annBadge');
+          if (badge) { badge.textContent = serverAnns.length; badge.style.display = 'inline'; }
+          showToast('✅ 批注已添加');
+        }
+        document.getElementById('annContent').value = '';
+        hideAnnInput();
+      }).catch(function(err) {
+        showToast('❌ 提交失败: ' + err.message);
+      }).finally(function() {
+        btn.textContent = origText;
+        btn.disabled = false;
+      });
+      return false;
+    }
 
     // ── Annotate action ──
     function doAnnotate() {
@@ -1954,6 +1998,40 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
     function hideAnnInput() {
       document.getElementById('annInputBox').style.display = 'none';
       if (_tempHighlight) { _tempHighlight.replaceWith(document.createTextNode(_tempHighlight.textContent)); _tempHighlight = null; }
+    }
+
+    // ── Async region annotation submit ──
+    function submitRegionAnnAsync(e) {
+      e.preventDefault();
+      var btn = document.getElementById('regionSubmitBtn');
+      btn.textContent = '⏳ ...';
+      btn.disabled = true;
+      var body = {
+        filePath: FILE_PATH,
+        line: 0, endLine: 0,
+        content: document.getElementById('regionTextarea').value,
+        author: document.getElementById('annAuthor') ? document.getElementById('annAuthor').value : 'web-user',
+        authorType: 'human'
+      };
+      fetch('/api/spaces/' + SPACE_ID + '/annotations', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      }).then(function(r) { return r.json(); }).then(function(data) {
+        if (data.annotation) {
+          serverAnns.push(data.annotation);
+          renderAnnBubbles();
+          renderAnnList();
+          showToast('✅ 框选批注已添加');
+        }
+        document.getElementById('regionTextarea').value = '';
+        hideRegionInput();
+      }).catch(function(err) {
+        showToast('❌ 提交失败: ' + err.message);
+      }).finally(function() {
+        btn.textContent = '📝 添加批注';
+        btn.disabled = false;
+      });
+      return false;
     }
 
     // ── Copy ref / text ──
