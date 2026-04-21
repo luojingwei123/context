@@ -119,7 +119,7 @@ export function isBinaryFile(filePath: string): boolean {
 export async function writeBinaryFile(spaceId: string, filePath: string, data: Buffer, modifiedBy: string): Promise<SpaceFile> {
   const db = getDb();
   const now = new Date().toISOString();
-  const mimeType = guessMimeType(filePath);
+  const mimeType = mimeTypeOverride || guessMimeType(filePath);
   const size = data.length;
 
   // Upsert into file_blobs
@@ -162,11 +162,11 @@ export async function writeBinaryFile(spaceId: string, filePath: string, data: B
   };
 }
 
-export async function writeFile(spaceId: string, filePath: string, content: string, modifiedBy: string): Promise<SpaceFile> {
+export async function writeFile(spaceId: string, filePath: string, content: string, modifiedBy: string, mimeTypeOverride?: string): Promise<SpaceFile> {
   const db = getDb();
   const now = new Date().toISOString();
   const size = Buffer.byteLength(content, "utf-8");
-  const mimeType = guessMimeType(filePath);
+  const mimeType = mimeTypeOverride || guessMimeType(filePath);
 
   // Check if exists
   const existing = await db.execute({

@@ -8,6 +8,7 @@
  */
 
 import { Router } from "express";
+import mammoth from "mammoth";
 import crypto from "crypto";
 import * as storage from "../storage/index.js";
 import { getTemplate } from "../templates/index.js";
@@ -65,7 +66,7 @@ router.get("/health", (_req, res) => {
   res.json({
     status: "ok",
     service: "context-server",
-    version: "1.13",
+    version: "1.14",
     pluginVersion: "1.0.8",
     updateCommand: "clawhub update context-collab --force",
   });
@@ -925,6 +926,14 @@ router.post("/s/:id/upload", async (req, res) => {
             // Binary files → file_blobs, text files → files table
             if (storage.isBinaryFile(filename)) {
               await storage.writeBinaryFile(req.params.id, filename, trimmed, "web-upload");
+              // Convert Office files to HTML for editing/preview
+              const ext = filename.split(".").pop()?.toLowerCase() || "";
+              if (ext === "docx") {
+                try {
+                  const result = await mammoth.convertToHtml({ buffer: trimmed });
+                  await storage.writeFile(req.params.id, filename, result.value, "web-upload", "text/html");
+                } catch (e: any) { console.error("[Upload] mammoth convert failed:", e.message); }
+              }
             } else {
               const content = trimmed.toString("utf-8");
               await storage.writeFile(req.params.id, filename, content, "web-upload");
@@ -1603,7 +1612,8 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
   // Determine file render mode
   const isImage = file.mimeType?.startsWith("image/") || filePath.match(/\.(png|jpg|jpeg|gif|svg|webp)$/i);
   const isMd = filePath.match(/\.(md|markdown)$/i);
-  const isOffice = filePath.match(/\.(doc|docx|xls|xlsx|ppt|pptx|pdf)$/i);
+  const isDocxHtml = filePath.match(/\.docx$/i) && file.content && !file.mimeType?.startsWith("application/");
+  const isOffice = !isDocxHtml && filePath.match(/\.(doc|docx|xls|xlsx|ppt|pptx|pdf)$/i);
 
   let contentHtml = "";
   if (isImage) {
@@ -1645,6 +1655,32 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
       </div>
     </div>`;
 
+  } else if (isDocxHtml) {
+    // DOCX converted to HTML — render like MD with split pane
+    contentHtml = `
+    <div class="split-view" id="splitView">
+      <div class="split-pane split-pane-source" id="sourcePane">
+        <div class="split-header"><span>📘 HTML 源码 (docx)</span><span class="save-indicator" id="saveStatus">已保存</span></div>
+        <textarea id="sourceEditor" spellcheck="false" oninput="onSourceEdit()">${esc(file.content)}</textarea>
+      </div>
+      <div class="split-divider" id="splitDivider"></div>
+      <div class="split-pane" id="rightPane" style="display:flex;flex-direction:column;">
+        <div class="split-header" style="justify-content:space-between;">
+          <span>👁️ 预览 <span id="annBadge" class="ann-badge" style="display:none;">0</span></span>
+          <div style="display:flex;gap:4px;">
+            <button class="btn-small" onclick="toggleRegionMode()" title="框选批注">📐</button>
+            <button class="btn-small" onclick="doCopyRef()" title="复制引用">🔗</button>
+            <a href="/ctx/${spaceId}/${filePath}" download class="btn-small" title="下载原文件">⬇️</a>
+          </div>
+        </div>
+        <div style="display:flex;flex:1;overflow:hidden;">
+          <div id="previewPanel" class="right-panel" style="flex:1;overflow:auto;padding:20px 24px;position:relative;">
+            ${file.content}
+          </div>
+          <div id="annSidebar" class="ann-sidebar" style="display:none;"></div>
+        </div>
+      </div>
+    </div>`;
   } else if (isMd) {
     const escapedContent = file.content.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$/g, '\\$');
     contentHtml = `
