@@ -30,7 +30,7 @@ router.get("/health", (_req, res) => {
   res.json({
     status: "ok",
     service: "context-server",
-    version: "1.4.0",
+    version: "1.5.0",
     pluginVersion: "1.0.8",
     updateCommand: "clawhub update context-collab --force",
   });
@@ -406,28 +406,57 @@ router.get("/ctx/:spaceId/*", async (req, res) => {
 router.get("/s", async (_req, res) => {
   try {
     res.type("text/html").send(page("Context", `
-      <h1>📦 Context</h1>
-      <p>多 Agent 协作协议引擎 — 共享空间 + 自动注入上下文</p>
-      <hr>
-      <h3>🔗 已有空间？</h3>
-      <p>直接访问你的空间地址：</p>
-      <form onsubmit="location.href='/s/'+document.getElementById('sid').value;return false;" style="margin:16px 0;">
-        <input id="sid" placeholder="输入 Space ID" style="width:240px;" required>
-        <button type="submit">进入</button>
-      </form>
-      <hr>
-      <h3>➕ 创建新空间</h3>
-      <form method="POST" action="/s/create">
-        <label>名称: <input name="name" required></label><br>
-        <label>Channel: <select name="channel"><option>discord</option><option>dmwork</option><option>telegram</option><option>slack</option></select></label><br>
-        <label>Group ID: <input name="groupId" required></label><br>
-        <label>模板: <select name="template"><option value="software-dev">软件开发</option><option value="content">内容生产</option><option value="research">科研</option><option value="blank">空白</option></select></label><br>
-        <label>创建者: <input name="createdBy" value="web-user"></label><br><br>
-        <button type="submit">创建</button>
-      </form>
-      <hr>
-      <p style="color:#656d76;font-size:13px;">每个空间有独立地址：<code>/s/{spaceId}</code><br>
-      由 Agent 或斜杠命令创建空间后会返回专属链接。</p>
+      <div class="hero">
+        <h1>📦 Context</h1>
+        <p>多 Agent 协作协议引擎 — 共享空间、自动注入上下文、实时批注与任务管理</p>
+        <div class="hero-features">
+          <div class="feature"><div class="feature-icon">🤖</div><div class="feature-label">多 Agent 协作</div></div>
+          <div class="feature"><div class="feature-icon">📄</div><div class="feature-label">共享文件空间</div></div>
+          <div class="feature"><div class="feature-icon">💬</div><div class="feature-label">实时批注</div></div>
+          <div class="feature"><div class="feature-icon">📜</div><div class="feature-label">版本历史</div></div>
+        </div>
+      </div>
+
+      <div class="card fade-in">
+        <div class="card-header">
+          <h2 style="margin:0;">🔗 进入已有空间</h2>
+        </div>
+        <form onsubmit="var v=document.getElementById('sid').value.trim();if(v)location.href='/s/'+v;return false;" style="display:flex;gap:8px;">
+          <input id="sid" placeholder="输入 Space ID" style="flex:1;" required>
+          <button type="submit" class="btn btn-primary">进入</button>
+        </form>
+      </div>
+
+      <div class="card fade-in">
+        <div class="card-header">
+          <h2 style="margin:0;">➕ 创建新空间</h2>
+        </div>
+        <form method="POST" action="/s/create" style="display:flex;flex-direction:column;gap:16px;">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div><label>空间名称</label><br><input name="name" required style="width:100%;margin-top:4px;" placeholder="My Project"></div>
+            <div><label>创建者</label><br><input name="createdBy" value="web-user" style="width:100%;margin-top:4px;"></div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div><label>Channel</label><br><select name="channel" style="width:100%;margin-top:4px;"><option>discord</option><option>dmwork</option><option>telegram</option><option>slack</option><option>webchat</option></select></div>
+            <div><label>Group ID</label><br><input name="groupId" required style="width:100%;margin-top:4px;" placeholder="群 / 服务器 ID"></div>
+          </div>
+          <div>
+            <label>模板</label><br>
+            <select name="template" style="width:100%;margin-top:4px;">
+              <option value="software-dev">🛠 软件开发</option>
+              <option value="content">📝 内容创作</option>
+              <option value="research">🔬 研究项目</option>
+              <option value="blank">📄 空白</option>
+            </select>
+          </div>
+          <button type="submit" class="btn btn-primary" style="align-self:flex-start;">🚀 创建空间</button>
+        </form>
+      </div>
+
+      <div style="text-align:center;padding:24px 0;color:var(--text-muted);font-size:13px;">
+        <p>每个空间有独立地址：<code>/s/{spaceId}</code></p>
+        <p style="margin-top:4px;">由 Agent 或斜杠命令创建后会返回专属链接</p>
+      </div>
     `));
   } catch (err: any) { res.status(500).send(err.message); }
 });
@@ -498,13 +527,20 @@ router.get("/s/:id/edit/*", async (req, res) => {
     const file = await storage.getFile(req.params.id, filePath);
     const content = file?.content || "";
     res.type("text/html").send(page(`编辑 ${filePath}`, `
-      <div class="breadcrumb"><a href="/s/${req.params.id}">← ${esc(space.name)}</a> / 编辑: ${esc(filePath)}</div>
-      <form method="POST" action="/s/${req.params.id}/save/${filePath}">
-        <textarea name="content" style="width:100%;height:500px;font-family:monospace;font-size:14px;padding:12px;">${esc(content)}</textarea><br>
-        <label>修改人: <input name="modifiedBy" value="web-user"></label>
-        <button type="submit" style="margin-left:10px;">💾 保存</button>
-        <a href="/s/${req.params.id}/view/${filePath}" style="margin-left:10px;">取消</a>
-      </form>
+      <div class="breadcrumb"><a href="/s/${req.params.id}">← ${esc(space.name)}</a> <span>/</span> 编辑: <b>${esc(filePath)}</b></div>
+      <div class="card">
+        <div class="card-header"><h2 style="margin:0;">✏️ 编辑文件</h2></div>
+        <form method="POST" action="/s/${req.params.id}/save/${filePath}" style="display:flex;flex-direction:column;gap:12px;">
+          <textarea name="content" class="editor-area">${esc(content)}</textarea>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <label>修改人: <input name="modifiedBy" value="web-user" style="width:140px;"></label>
+            <div style="margin-left:auto;display:flex;gap:8px;">
+              <a href="/s/${req.params.id}/view/${filePath}" class="btn">取消</a>
+              <button type="submit" class="btn btn-primary">💾 保存</button>
+            </div>
+          </div>
+        </form>
+      </div>
     `));
   } catch (err: any) { res.status(500).send(err.message); }
 });
@@ -525,13 +561,18 @@ router.get("/s/:id/new", async (req, res) => {
     const space = await storage.getSpace(req.params.id);
     if (!space) return res.status(404).send(notFoundPage("Space not found"));
     res.type("text/html").send(page("新建文件", `
-      <div class="breadcrumb"><a href="/s/${req.params.id}">← ${esc(space.name)}</a> / 新建文件</div>
-      <form method="POST" action="/s/${req.params.id}/create-file">
-        <label>文件路径: <input name="path" placeholder="docs/design.md" required style="width:300px;"></label><br><br>
-        <textarea name="content" style="width:100%;height:400px;font-family:monospace;font-size:14px;padding:12px;" placeholder="在此输入文件内容..."></textarea><br>
-        <label>创建者: <input name="modifiedBy" value="web-user"></label>
-        <button type="submit" style="margin-left:10px;">📄 创建文件</button>
-      </form>
+      <div class="breadcrumb"><a href="/s/${req.params.id}">← ${esc(space.name)}</a> <span>/</span> 新建文件</div>
+      <div class="card">
+        <div class="card-header"><h2 style="margin:0;">📄 新建文件</h2></div>
+        <form method="POST" action="/s/${req.params.id}/create-file" style="display:flex;flex-direction:column;gap:12px;">
+          <div><label>文件路径</label><br><input name="path" placeholder="docs/design.md" required style="width:100%;margin-top:4px;"></div>
+          <textarea name="content" class="editor-area" style="min-height:400px;" placeholder="在此输入文件内容..."></textarea>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <label>创建者: <input name="modifiedBy" value="web-user" style="width:140px;"></label>
+            <button type="submit" class="btn btn-primary" style="margin-left:auto;">📄 创建文件</button>
+          </div>
+        </form>
+      </div>
     `));
   } catch (err: any) { res.status(500).send(err.message); }
 });
@@ -705,19 +746,25 @@ router.get("/s/:id/search", async (req, res) => {
 
     const resultsHtml = results.map(r => {
       const matchLines = r.matches.map(m =>
-        `<li><small>第 ${m.line} 行:</small> ${esc(m.text)}</li>`
+        `<li><small>L${m.line}</small> ${esc(m.text)}</li>`
       ).join("");
-      return `<div style="margin:12px 0;padding:12px;background:#f6f8fa;border:1px solid #d1d9e0;border-radius:6px;">
-        <b><a href="/s/${req.params.id}/view/${r.path}">${esc(r.path)}</a></b> <small>(${r.matches.length} 处匹配)</small>
-        <ul style="margin-top:8px;">${matchLines}</ul>
+      return `<div class="search-result">
+        <a href="/s/${req.params.id}/view/${r.path}" class="result-path">${esc(r.path)}</a><span class="result-count">${r.matches.length} 处匹配</span>
+        <ul>${matchLines}</ul>
       </div>`;
     }).join("");
 
     res.type("text/html").send(page(`搜索: ${q}`, `
-      <div class="breadcrumb"><a href="/s/${req.params.id}">← ${esc(space.name)}</a> / 搜索</div>
-      <h2>🔍 搜索结果: "${esc(q)}"</h2>
-      <p>${results.length} 个文件，${totalMatches} 处匹配</p>
-      ${resultsHtml || "<p>未找到匹配内容。</p>"}
+      <div class="breadcrumb"><a href="/s/${req.params.id}">← ${esc(space.name)}</a> <span>/</span> 搜索</div>
+      <div class="card">
+        <h2 style="margin:0 0 8px;">🔍 搜索结果</h2>
+        <p style="color:var(--text-secondary);font-size:14px;">"<b>${esc(q)}</b>" — ${results.length} 个文件，${totalMatches} 处匹配</p>
+        <form method="GET" action="/s/${req.params.id}/search" style="margin-top:12px;display:flex;gap:8px;">
+          <input name="q" value="${esc(q)}" style="flex:1;">
+          <button type="submit" class="btn btn-primary">🔍 搜索</button>
+        </form>
+      </div>
+      ${resultsHtml || '<div class="empty-state"><div class="empty-icon">🔍</div><p>未找到匹配内容</p></div>'}
     `));
   } catch (err: any) { res.status(500).send(err.message); }
 });
@@ -740,18 +787,20 @@ router.get("/s/:id/annotations", async (req, res) => {
           · <small>${new Date(a.createdAt).toLocaleString("zh-CN")}</small>
         </div>
         <div class="ann-content">${esc(a.content)}</div>
-        <form method="POST" action="/s/${req.params.id}/resolve-annotation/${a.id}" style="display:inline;">
-          <input type="hidden" name="filePath" value="${esc(a.filePath)}">
-          <button type="submit" class="btn-small">✅ 标记已处理</button>
-        </form>
-        <form method="POST" action="/s/${req.params.id}/annotation-to-task/${a.id}" style="display:inline;margin-left:4px;">
-          <input type="hidden" name="filePath" value="${esc(a.filePath)}">
-          <button type="submit" class="btn-small" title="写入 TASK.md 并标记批注为已处理">📋 转为任务</button>
-        </form>
-        <form method="POST" action="/s/${req.params.id}/annotation-to-chat/${a.id}" style="display:inline;margin-left:4px;">
-          <input type="hidden" name="filePath" value="${esc(a.filePath)}">
-          <button type="submit" class="btn-small" title="通过 Webhook 发送到群聊（需先在空间设置中配置 Webhook）">📢 发到群</button>
-        </form>
+        <div class="ann-actions">
+          <form method="POST" action="/s/${req.params.id}/resolve-annotation/${a.id}" style="display:inline;">
+            <input type="hidden" name="filePath" value="${esc(a.filePath)}">
+            <button type="submit" class="btn-small">✅ 已处理</button>
+          </form>
+          <form method="POST" action="/s/${req.params.id}/annotation-to-task/${a.id}" style="display:inline;">
+            <input type="hidden" name="filePath" value="${esc(a.filePath)}">
+            <button type="submit" class="btn-small">📋 转任务</button>
+          </form>
+          <form method="POST" action="/s/${req.params.id}/annotation-to-chat/${a.id}" style="display:inline;">
+            <input type="hidden" name="filePath" value="${esc(a.filePath)}">
+            <button type="submit" class="btn-small">📢 发到群</button>
+          </form>
+        </div>
       </div>
     `).join("");
 
@@ -770,18 +819,12 @@ router.get("/s/:id/annotations", async (req, res) => {
       : "";
 
     res.type("text/html").send(page("批注清单", `
-      <style>
-        .annotation { background: #fff8c5; border: 1px solid #d4a72c; border-radius: 6px; padding: 12px; margin: 8px 0; }
-        .annotation.resolved { background: #f0fff0; border-color: #2da44e; opacity: 0.7; }
-        .ann-header { font-size: 13px; margin-bottom: 4px; color: #656d76; }
-        .ann-content { margin: 8px 0; }
-        .btn-small { font-size: 12px; padding: 3px 8px; border-radius: 4px; border: 1px solid #d1d9e0; background: #f6f8fa; cursor: pointer; }
-      </style>
-      <div class="breadcrumb"><a href="/s/${req.params.id}">← ${esc(space.name)}</a> / 批注清单</div>
-      <h2>💬 批注清单</h2>
-      <p>待处理: ${open.length} · 已处理: ${resolved.length}</p>
-      ${openHtml || "<p>暂无待处理批注 🎉</p>"}
-      ${resolvedHtml}
+      <div class="breadcrumb"><a href="/s/${req.params.id}">← ${esc(space.name)}</a> <span>/</span> 批注清单</div>
+      <div class="card">
+        <div class="card-header"><h2 style="margin:0;">💬 批注清单</h2><span class="badge badge-channel">待处理 ${open.length} · 已处理 ${resolved.length}</span></div>
+        ${openHtml || '<div class="empty-state"><div class="empty-icon">🎉</div><p>暂无待处理批注</p></div>'}
+        ${resolvedHtml}
+      </div>
     `));
   } catch (err: any) { res.status(500).send(err.message); }
 });
@@ -798,23 +841,29 @@ router.get("/s/:id/history/*", async (req, res) => {
     const historyHtml = history.length > 0
       ? history.map(h => `
         <tr>
-          <td>v${h.version}</td>
+          <td><span class="badge badge-channel">v${h.version}</span></td>
           <td>${esc(h.modifiedBy)}</td>
           <td>${new Date(h.savedAt).toLocaleString("zh-CN")}</td>
-          <td>${h.size}B</td>
-          <td><a href="/s/${req.params.id}/version/${h.version}/${filePath}">查看</a></td>
+          <td>${h.size < 1024 ? h.size + 'B' : (h.size/1024).toFixed(1) + 'KB'}</td>
+          <td><a href="/s/${req.params.id}/version/${h.version}/${filePath}" class="btn-small">查看</a></td>
         </tr>
       `).join("")
-      : "<tr><td colspan='5'>暂无历史版本</td></tr>";
+      : "<tr><td colspan='5' style='text-align:center;color:var(--text-muted);padding:24px;'>暂无历史版本</td></tr>";
 
     res.type("text/html").send(page(`历史 — ${filePath}`, `
-      <div class="breadcrumb"><a href="/s/${req.params.id}">← ${esc(space.name)}</a> / <a href="/s/${req.params.id}/view/${filePath}">${esc(filePath)}</a> / 版本历史</div>
-      <h2>📜 版本历史: ${esc(filePath)}</h2>
-      <p>当前版本: v${currentFile?.version || '?'}</p>
-      <table>
-        <tr><th>版本</th><th>修改人</th><th>时间</th><th>大小</th><th>操作</th></tr>
-        ${historyHtml}
-      </table>
+      <div class="breadcrumb"><a href="/s/${req.params.id}">← ${esc(space.name)}</a> <span>/</span> <a href="/s/${req.params.id}/view/${filePath}">${esc(filePath)}</a> <span>/</span> 版本历史</div>
+      <div class="card">
+        <div class="card-header">
+          <h2 style="margin:0;">📜 版本历史</h2>
+          <span class="badge badge-channel">当前 v${currentFile?.version || '?'}</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>版本</th><th>修改人</th><th>时间</th><th>大小</th><th>操作</th></tr></thead>
+            <tbody>${historyHtml}</tbody>
+          </table>
+        </div>
+      </div>
     `));
   } catch (err: any) { res.status(500).send(err.message); }
 });
@@ -831,12 +880,22 @@ router.get("/s/:id/version/:version/*", async (req, res) => {
 
     res.type("text/html").send(page(`v${version} — ${filePath}`, `
       <div class="breadcrumb">
-        <a href="/s/${req.params.id}">← ${esc(space.name)}</a> /
-        <a href="/s/${req.params.id}/view/${filePath}">${esc(filePath)}</a> /
-        <a href="/s/${req.params.id}/history/${filePath}">历史</a> / v${version}
+        <a href="/s/${req.params.id}">${esc(space.name)}</a> <span>/</span>
+        <a href="/s/${req.params.id}/view/${filePath}">${esc(filePath)}</a> <span>/</span>
+        <a href="/s/${req.params.id}/history/${filePath}">历史</a> <span>/</span> <b>v${version}</b>
       </div>
-      <div class="meta">版本: v${version} · 修改: ${esc(data.modifiedBy)} · 时间: ${new Date(data.savedAt).toLocaleString("zh-CN")} · 大小: ${data.content.length}B</div>
-      <pre style="white-space:pre-wrap;">${esc(data.content)}</pre>
+      <div class="card">
+        <div class="card-header">
+          <h2 style="margin:0;">📜 v${version}</h2>
+          <a href="/s/${req.params.id}/history/${filePath}" class="btn">← 返回历史</a>
+        </div>
+        <div class="meta">
+          <b>版本:</b> v${version} · <b>修改:</b> ${esc(data.modifiedBy)} · <b>时间:</b> ${new Date(data.savedAt).toLocaleString("zh-CN")} · <b>大小:</b> ${data.content.length < 1024 ? data.content.length + 'B' : (data.content.length/1024).toFixed(1) + 'KB'}
+        </div>
+      </div>
+      <div style="border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;">
+        <pre style="margin:0;border:none;border-radius:0;white-space:pre-wrap;">${esc(data.content)}</pre>
+      </div>
     `));
   } catch (err: any) { res.status(500).send(err.message); }
 });
@@ -850,9 +909,13 @@ const CSS = `
   :root {
     --primary: #2563eb;
     --primary-hover: #1d4ed8;
+    --primary-light: #eff6ff;
     --success: #16a34a;
+    --success-light: #dcfce7;
     --danger: #dc2626;
+    --danger-light: #fef2f2;
     --warning: #d97706;
+    --warning-light: #fffbeb;
     --bg: #f8fafc;
     --bg-card: #ffffff;
     --bg-hover: #f1f5f9;
@@ -864,11 +927,43 @@ const CSS = `
     --text-muted: #94a3b8;
     --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04);
     --shadow-md: 0 4px 6px rgba(0,0,0,.07), 0 2px 4px rgba(0,0,0,.04);
+    --shadow-lg: 0 10px 15px -3px rgba(0,0,0,.08), 0 4px 6px -4px rgba(0,0,0,.04);
     --radius: 8px;
     --radius-lg: 12px;
+    color-scheme: light dark;
   }
-  * { box-sizing: border-box; }
-  body { font-family: -apple-system, system-ui, "Segoe UI", "Noto Sans SC", sans-serif; margin: 0; padding: 0; line-height: 1.6; color: var(--text); background: var(--bg); }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --primary: #60a5fa;
+      --primary-hover: #93bbfd;
+      --primary-light: #1e293b;
+      --success: #4ade80;
+      --success-light: #052e16;
+      --danger: #f87171;
+      --danger-light: #450a0a;
+      --warning: #fbbf24;
+      --warning-light: #451a03;
+      --bg: #0f172a;
+      --bg-card: #1e293b;
+      --bg-hover: #334155;
+      --bg-code: #1e293b;
+      --border: #334155;
+      --border-strong: #475569;
+      --text: #f1f5f9;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --shadow: 0 1px 3px rgba(0,0,0,.3);
+      --shadow-md: 0 4px 6px rgba(0,0,0,.3);
+      --shadow-lg: 0 10px 15px rgba(0,0,0,.3);
+    }
+    .badge-agent { background: #1e3a5f; color: #93c5fd; }
+    .badge-human { background: #052e16; color: #86efac; }
+    .badge-creator { background: #451a03; color: #fcd34d; }
+    .annotation, .annotation-card { background: var(--warning-light); border-color: #92400e; }
+    .annotation.resolved, .annotation-card.resolved { background: var(--bg-code); border-color: var(--border); }
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { font-family: -apple-system, system-ui, "Segoe UI", "Noto Sans SC", sans-serif; margin: 0; padding: 0; line-height: 1.6; color: var(--text); background: var(--bg); -webkit-font-smoothing: antialiased; }
   .container { max-width: 960px; margin: 0 auto; padding: 24px 20px; }
   .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px; margin-bottom: 20px; box-shadow: var(--shadow); }
   .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
@@ -876,77 +971,151 @@ const CSS = `
   h1 { font-size: 24px; font-weight: 700; margin: 0 0 8px; color: var(--text); }
   h2 { font-size: 18px; font-weight: 600; color: var(--text); margin-top: 24px; }
   h3 { font-size: 15px; font-weight: 600; color: var(--text); }
-  a { color: var(--primary); text-decoration: none; }
+  a { color: var(--primary); text-decoration: none; transition: color .15s; }
   a:hover { text-decoration: underline; }
-  pre { background: var(--bg-code); padding: 14px; border-radius: var(--radius); overflow-x: auto; border: 1px solid var(--border); font-size: 13px; }
-  code { background: var(--bg-code); padding: 2px 6px; border-radius: 4px; font-size: 0.88em; font-family: "SF Mono", "Fira Code", monospace; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+  blockquote { border-left: 3px solid var(--primary); padding: 8px 16px; margin: 12px 0; background: var(--bg-code); border-radius: 0 var(--radius) var(--radius) 0; color: var(--text-secondary); }
+  pre { background: var(--bg-code); padding: 14px; border-radius: var(--radius); overflow-x: auto; border: 1px solid var(--border); font-size: 13px; line-height: 1.5; }
+  code { background: var(--bg-code); padding: 2px 6px; border-radius: 4px; font-size: 0.88em; font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace; }
   pre code { background: none; padding: 0; }
-  .breadcrumb { color: var(--text-secondary); margin-bottom: 16px; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+  /* ── Form Controls ── */
+  input[type="text"], input[type="number"], input[type="email"], input[type="url"], input[type="search"],
+  input:not([type]), textarea, select {
+    font-family: inherit; font-size: 14px; line-height: 1.5;
+    padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius);
+    background: var(--bg-card); color: var(--text); transition: border-color .15s, box-shadow .15s;
+    outline: none; width: auto;
+  }
+  input:focus, textarea:focus, select:focus {
+    border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,.12);
+  }
+  textarea { resize: vertical; }
+  select { cursor: pointer; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2364748b' d='M2 4l4 4 4-4'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; padding-right: 30px; }
+  label { font-size: 14px; color: var(--text-secondary); display: inline-flex; align-items: center; gap: 6px; }
+  /* ── Tables ── */
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); }
+  th { font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-secondary); background: var(--bg-code); }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--bg-hover); }
+  .table-wrap { border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
+  /* ── Components ── */
+  .breadcrumb { color: var(--text-secondary); margin-bottom: 16px; font-size: 13px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
   .breadcrumb a { color: var(--primary); font-weight: 500; }
   .breadcrumb span { color: var(--text-muted); }
-  .meta { background: var(--bg-code); padding: 12px 16px; border-radius: var(--radius); margin: 12px 0; border: 1px solid var(--border); font-size: 13px; color: var(--text-secondary); }
+  .meta { background: var(--bg-code); padding: 12px 16px; border-radius: var(--radius); margin: 12px 0; border: 1px solid var(--border); font-size: 13px; color: var(--text-secondary); line-height: 1.8; }
   .meta b { color: var(--text); }
-  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; line-height: 1.5; }
   .badge-agent { background: #dbeafe; color: #1e40af; }
   .badge-human { background: #dcfce7; color: #166534; }
   .badge-creator { background: #fef3c7; color: #92400e; }
-  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: var(--radius); font-size: 13px; font-weight: 500; border: 1px solid var(--border); background: var(--bg-card); color: var(--text); cursor: pointer; text-decoration: none; transition: all .15s; }
+  .badge-channel { background: var(--bg-code); color: var(--text-secondary); border: 1px solid var(--border); }
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: var(--radius); font-size: 13px; font-weight: 500; border: 1px solid var(--border); background: var(--bg-card); color: var(--text); cursor: pointer; text-decoration: none; transition: all .15s; line-height: 1.4; }
   .btn:hover { background: var(--bg-hover); text-decoration: none; border-color: var(--border-strong); }
   .btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
-  .btn-primary:hover { background: var(--primary-hover); }
+  .btn-primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
   .btn-success { background: var(--success); color: #fff; border-color: var(--success); }
   .btn-danger { background: transparent; color: var(--danger); border-color: var(--danger); }
   .btn-danger:hover { background: var(--danger); color: #fff; }
-  .btn-small { padding: 4px 10px; font-size: 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-card); cursor: pointer; }
-  .btn-small:hover { background: var(--bg-hover); }
-  .file-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin: 16px 0; }
-  .file-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 8px; transition: all .15s; text-decoration: none; color: var(--text); }
-  .file-card:hover { border-color: var(--primary); box-shadow: var(--shadow-md); text-decoration: none; transform: translateY(-1px); }
-  .file-card .icon { font-size: 24px; }
-  .file-card .name { font-size: 13px; font-weight: 500; word-break: break-all; }
-  .file-card .meta { font-size: 11px; color: var(--text-muted); padding: 0; margin: 0; border: none; background: none; }
+  .btn-ghost { background: transparent; border-color: transparent; color: var(--text-secondary); }
+  .btn-ghost:hover { background: var(--bg-hover); color: var(--text); }
+  .btn-small { padding: 4px 10px; font-size: 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-card); cursor: pointer; transition: all .15s; color: var(--text); font-family: inherit; }
+  .btn-small:hover { background: var(--bg-hover); border-color: var(--border-strong); }
+  .btn-group { display: flex; gap: 6px; flex-wrap: wrap; }
+  .file-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin: 16px 0; }
+  .file-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 8px; transition: all .2s; text-decoration: none; color: var(--text); position: relative; }
+  .file-card:hover { border-color: var(--primary); box-shadow: var(--shadow-md); text-decoration: none; transform: translateY(-2px); }
+  .file-card .icon { font-size: 28px; }
+  .file-card .name { font-size: 13px; font-weight: 500; word-break: break-all; display: flex; align-items: center; gap: 6px; }
+  .file-card .file-meta { font-size: 11px; color: var(--text-muted); }
   .member-list { display: flex; flex-wrap: wrap; gap: 10px; }
-  .member-chip { display: flex; align-items: center; gap: 6px; padding: 6px 12px; background: var(--bg-code); border: 1px solid var(--border); border-radius: 20px; font-size: 13px; }
-  .upload-zone { border: 2px dashed var(--border-strong); border-radius: var(--radius-lg); padding: 32px; text-align: center; cursor: pointer; transition: all .2s; margin: 16px 0; }
-  .upload-zone:hover, .upload-zone.drag-over { border-color: var(--primary); background: #eff6ff; }
+  .member-chip { display: flex; align-items: center; gap: 6px; padding: 6px 12px; background: var(--bg-code); border: 1px solid var(--border); border-radius: 20px; font-size: 13px; transition: all .15s; }
+  .member-chip:hover { border-color: var(--border-strong); }
+  .upload-zone { border: 2px dashed var(--border-strong); border-radius: var(--radius-lg); padding: 40px 32px; text-align: center; cursor: pointer; transition: all .2s; margin: 16px 0; }
+  .upload-zone:hover, .upload-zone.drag-over { border-color: var(--primary); background: var(--primary-light); }
   .upload-zone p { margin: 8px 0; color: var(--text-secondary); font-size: 14px; }
-  .annotation-card { background: #fffbeb; border: 1px solid #fde68a; border-radius: var(--radius); padding: 12px 16px; margin: 8px 0; }
-  .annotation-card.resolved { background: var(--bg-code); border-color: var(--border); opacity: .7; }
-  .annotation-card .ann-header { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
-  .annotation-card .ann-content { font-size: 14px; }
-  .code-table { border-collapse: collapse; width: 100%; font-size: 13px; font-family: "SF Mono", "Fira Code", monospace; }
+  .upload-zone .upload-icon { font-size: 36px; margin-bottom: 4px; opacity: .7; }
+  .annotation { background: var(--warning-light); border: 1px solid #fde68a; border-radius: var(--radius); padding: 14px 16px; margin: 10px 0; }
+  .annotation.resolved { background: var(--bg-code); border-color: var(--border); opacity: .6; }
+  .annotation .ann-header { font-size: 13px; margin-bottom: 6px; color: var(--text-secondary); display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+  .annotation .ann-content { margin: 8px 0; font-size: 14px; line-height: 1.6; }
+  .annotation .ann-actions { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 8px; }
+  .code-table { border-collapse: collapse; width: 100%; font-size: 13px; font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace; line-height: 1.55; }
   .code-table tr:hover { background: var(--bg-hover); }
-  .code-table .line-num { color: var(--text-muted); text-align: right; padding: 2px 12px 2px 8px; user-select: none; width: 40px; font-size: 12px; vertical-align: top; border-right: 1px solid var(--border); }
-  .code-table .line-content { white-space: pre-wrap; word-break: break-all; padding: 2px 12px; }
-  .add-annotation { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; margin-top: 20px; }
-  .toast { position: fixed; top: 20px; right: 20px; padding: 12px 20px; border-radius: var(--radius); font-size: 14px; z-index: 9999; animation: slideIn .3s ease; }
-  .toast-success { background: #dcfce7; border: 1px solid #86efac; color: #166534; }
+  .code-table .line-num { color: var(--text-muted); text-align: right; padding: 2px 12px 2px 8px; user-select: none; width: 48px; min-width: 48px; font-size: 12px; vertical-align: top; border-right: 1px solid var(--border); }
+  .code-table .line-content { white-space: pre-wrap; word-break: break-all; padding: 2px 14px; }
+  .add-annotation { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; margin-top: 20px; box-shadow: var(--shadow); }
+  .toast { position: fixed; top: 20px; right: 20px; padding: 12px 20px; border-radius: var(--radius); font-size: 14px; z-index: 9999; animation: slideIn .3s ease; pointer-events: none; }
+  .toast-success { background: var(--success-light); border: 1px solid var(--success); color: var(--success); }
   @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-  .nav { background: var(--bg-card); border-bottom: 1px solid var(--border); padding: 12px 20px; margin-bottom: 24px; }
-  .nav-inner { max-width: 960px; margin: 0 auto; display: flex; align-items: center; gap: 16px; }
-  .nav-brand { font-weight: 700; font-size: 16px; color: var(--text); display: flex; align-items: center; gap: 8px; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .fade-in { animation: fadeIn .3s ease; }
+  .nav { background: var(--bg-card); border-bottom: 1px solid var(--border); padding: 0 20px; position: sticky; top: 0; z-index: 100; backdrop-filter: blur(8px); background: rgba(255,255,255,.85); }
+  @media (prefers-color-scheme: dark) { .nav { background: rgba(30,41,59,.85); } }
+  .nav-inner { max-width: 960px; margin: 0 auto; display: flex; align-items: center; gap: 16px; height: 52px; }
+  .nav-brand { font-weight: 700; font-size: 15px; color: var(--text); display: flex; align-items: center; gap: 8px; text-decoration: none; }
+  .nav-brand:hover { text-decoration: none; color: var(--primary); }
+  .nav-right { margin-left: auto; display: flex; align-items: center; gap: 12px; font-size: 13px; }
+  .nav-right a { color: var(--text-secondary); }
+  .nav-right a:hover { color: var(--primary); text-decoration: none; }
+  .empty-state { text-align: center; padding: 48px 24px; color: var(--text-muted); }
+  .empty-state .empty-icon { font-size: 48px; margin-bottom: 12px; opacity: .6; }
+  .empty-state p { margin: 8px 0; }
+  .search-result { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin: 10px 0; transition: all .15s; }
+  .search-result:hover { border-color: var(--primary); box-shadow: var(--shadow); }
+  .search-result .result-path { font-weight: 600; font-size: 14px; }
+  .search-result .result-count { font-size: 12px; color: var(--text-muted); margin-left: 8px; }
+  .search-result ul { margin: 8px 0 0; padding-left: 0; list-style: none; }
+  .search-result li { padding: 4px 0; font-size: 13px; color: var(--text-secondary); border-bottom: 1px solid var(--border); }
+  .search-result li:last-child { border-bottom: none; }
+  .search-result li small { color: var(--text-muted); font-family: "SF Mono", monospace; margin-right: 8px; }
+  .editor-area { width: 100%; min-height: 500px; font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace; font-size: 14px; line-height: 1.6; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-code); color: var(--text); resize: vertical; tab-size: 2; }
+  .editor-area:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,.1); }
+  .hero { text-align: center; padding: 48px 24px 40px; }
+  .hero h1 { font-size: 32px; margin-bottom: 12px; }
+  .hero p { font-size: 16px; color: var(--text-secondary); max-width: 520px; margin: 0 auto 24px; line-height: 1.7; }
+  .hero-features { display: flex; justify-content: center; gap: 32px; margin-top: 24px; flex-wrap: wrap; }
+  .hero-features .feature { text-align: center; max-width: 160px; }
+  .hero-features .feature-icon { font-size: 28px; margin-bottom: 8px; }
+  .hero-features .feature-label { font-size: 13px; color: var(--text-secondary); }
+  .section-divider { display: flex; align-items: center; gap: 12px; margin: 28px 0 20px; font-size: 13px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
+  .section-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
   .office-preview { text-align: center; padding: 40px; background: var(--bg-code); border-radius: var(--radius-lg); border: 1px solid var(--border); }
   .office-preview .icon { font-size: 48px; margin-bottom: 12px; }
   .office-preview .info { color: var(--text-secondary); font-size: 14px; margin: 8px 0; }
   .img-preview { text-align: center; padding: 20px; }
   .img-preview img { max-width: 100%; border-radius: var(--radius); box-shadow: var(--shadow-md); }
+  details { margin: 8px 0; }
+  details > summary { cursor: pointer; font-size: 13px; color: var(--text-secondary); padding: 8px 0; user-select: none; }
+  details > summary:hover { color: var(--text); }
+  .not-found { text-align: center; padding: 80px 24px; }
+  .not-found .nf-code { font-size: 72px; font-weight: 800; color: var(--text-muted); opacity: .4; line-height: 1; }
+  .not-found .nf-msg { font-size: 18px; color: var(--text-secondary); margin: 16px 0 28px; }
   @media (max-width: 640px) {
     .container { padding: 16px 12px; }
     .card { padding: 16px; }
-    .file-grid { grid-template-columns: 1fr; }
+    .file-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
     .card-header { flex-direction: column; align-items: flex-start; gap: 8px; }
     .member-list { flex-direction: column; }
+    .hero h1 { font-size: 24px; }
+    .hero-features { gap: 20px; }
+    .btn-group { flex-direction: column; }
+    .nav-inner { gap: 10px; }
+    .editor-area { min-height: 350px; font-size: 13px; }
+  }
+  @media (max-width: 400px) {
+    .file-grid { grid-template-columns: 1fr; }
   }
 `;
 
 function page(title: string, body: string): string {
-  return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} — Context</title><style>${CSS}</style></head><body>
-  <nav class="nav"><div class="nav-inner"><div class="nav-brand">📦 Context</div></div></nav>
+  return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} — Context</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📦</text></svg>"><style>${CSS}</style></head><body>
+  <nav class="nav"><div class="nav-inner"><a href="/s" class="nav-brand">📦 Context</a><div class="nav-right"><a href="/s">首页</a><a href="/api/health">API</a></div></div></nav>
   <div class="container">${body}</div></body></html>`;
 }
 
 function notFoundPage(msg: string): string {
-  return page("Not Found", `<div class="card"><h1>404</h1><p>${esc(msg)}</p><a href="/s" class="btn">← 回到首页</a></div>`);
+  return page("Not Found", `<div class="not-found"><div class="nf-code">404</div><div class="nf-msg">${esc(msg)}</div><a href="/s" class="btn btn-primary">← 回到首页</a></div>`);
 }
 
 async function renderSpacePage(spaceId: string, space: any): Promise<string> {
@@ -973,7 +1142,7 @@ async function renderSpacePage(spaceId: string, space: any): Promise<string> {
     return `<a href="/s/${spaceId}/view/${f.path}" class="file-card">
       <div class="icon">${fileIcon(f.path)}</div>
       <div class="name">${esc(f.path)} ${annBadge}</div>
-      <div class="meta">${size} · v${f.version} · ${f.modifiedBy || "unknown"}</div>
+      <div class="file-meta">${size} · v${f.version} · ${f.modifiedBy || "unknown"}</div>
     </a>`;
   }).join("");
 
@@ -990,7 +1159,7 @@ async function renderSpacePage(spaceId: string, space: any): Promise<string> {
     <div class="card">
       <div class="card-header">
         <h1>${esc(space.name)}</h1>
-        <span class="badge badge-agent">${esc(space.channel)}</span>
+        <span class="badge badge-channel">${esc(space.channel)}</span>
       </div>
       <div class="meta">
         <b>Space ID:</b> <code>${spaceId}</code> · <b>创建:</b> ${new Date(space.createdAt).toLocaleDateString("zh-CN")} · <b>创建者:</b> ${esc(space.createdBy)}
@@ -1014,7 +1183,8 @@ async function renderSpacePage(spaceId: string, space: any): Promise<string> {
 
       <!-- 上传区域 -->
       <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
-        <p>📁 拖拽文件到此处上传，或点击选择文件</p>
+        <div class="upload-icon">📁</div>
+        <p>拖拽文件到此处上传，或点击选择文件</p>
         <p style="font-size:12px;color:var(--text-muted);">支持所有格式：文档、图片、代码文件等</p>
         <form id="uploadForm" method="POST" action="/s/${spaceId}/upload" enctype="multipart/form-data" style="display:none;">
           <input type="file" id="fileInput" name="file" multiple onchange="document.getElementById('uploadForm').submit()">
@@ -1100,21 +1270,23 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
           · <small>${new Date(a.createdAt).toLocaleString("zh-CN")}</small>
         </div>
         <div class="ann-content">${esc(a.content)}</div>
-        <form method="POST" action="/s/${spaceId}/resolve-annotation/${a.id}" style="display:inline;">
-          <input type="hidden" name="filePath" value="${esc(filePath)}">
-          <button type="submit" class="btn-small">✅ 标记已处理</button>
-        </form>
-        <form method="POST" action="/s/${spaceId}/annotation-to-task/${a.id}" style="display:inline;margin-left:4px;">
-          <input type="hidden" name="filePath" value="${esc(filePath)}">
-          <button type="submit" class="btn-small" title="写入 TASK.md 并标记批注为已处理">📋 转为任务</button>
-        </form>
-        <form method="POST" action="/s/${spaceId}/annotation-to-chat/${a.id}" style="display:inline;margin-left:4px;">
-          <input type="hidden" name="filePath" value="${esc(filePath)}">
-          <button type="submit" class="btn-small" title="通过 Webhook 发送到群聊（需先在空间设置中配置 Webhook）">📢 发到群</button>
-        </form>
+        <div class="ann-actions">
+          <form method="POST" action="/s/${spaceId}/resolve-annotation/${a.id}" style="display:inline;">
+            <input type="hidden" name="filePath" value="${esc(filePath)}">
+            <button type="submit" class="btn-small">✅ 已处理</button>
+          </form>
+          <form method="POST" action="/s/${spaceId}/annotation-to-task/${a.id}" style="display:inline;">
+            <input type="hidden" name="filePath" value="${esc(filePath)}">
+            <button type="submit" class="btn-small">📋 转任务</button>
+          </form>
+          <form method="POST" action="/s/${spaceId}/annotation-to-chat/${a.id}" style="display:inline;">
+            <input type="hidden" name="filePath" value="${esc(filePath)}">
+            <button type="submit" class="btn-small">📢 发到群</button>
+          </form>
+        </div>
       </div>
     `).join("")
-    : "<p>暂无批注</p>";
+    : '<div class="empty-state" style="padding:20px;"><p style="color:var(--text-muted);">暂无批注</p></div>';
 
   const resolvedHtml = resolvedAnns.length > 0
     ? `<details><summary>已处理的批注 (${resolvedAnns.length})</summary>` +
@@ -1170,7 +1342,7 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
     <div class="card">
       <div class="card-header">
         <h1 style="font-size:18px;">${esc(filePath)}</h1>
-        <div style="display:flex;gap:6px;">
+        <div class="btn-group">
           <a href="/s/${spaceId}/edit/${filePath}" class="btn">✏️ 编辑</a>
           <a href="/s/${spaceId}/history/${filePath}" class="btn">📜 历史</a>
           <form method="POST" action="/s/${spaceId}/delete/${filePath}" style="display:inline;" onsubmit="return confirm('确定删除？')">

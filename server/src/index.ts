@@ -1,11 +1,12 @@
 /**
- * Context Server — Entry Point v1.1
+ * Context Server — Entry Point v1.5
  */
 
 import express from "express";
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
+import { initDb } from "./db.js";
 import routes from "./routes/index.js";
 
 const PORT = parseInt(process.env.PORT || process.env.CONTEXT_PORT || "3100", 10);
@@ -72,7 +73,13 @@ app.use("/api", apiAuth, routes);
 // /ctx routes — public (content + install hint for non-plugin agents, or rendered page for browsers)
 app.use("/", routes);
 
-app.listen(PORT, HOST, () => {
-  console.log(`[context-server] ✅ Running on http://${HOST}:${PORT}`);
-  console.log(`[context-server] Data dir: ${DATA_DIR}`);
+// Initialize database then start server
+initDb().then(() => {
+  app.listen(PORT, HOST, () => {
+    console.log(`[context-server] ✅ Running on http://${HOST}:${PORT}`);
+    console.log(`[context-server] DB: ${process.env.TURSO_DATABASE_URL || "file:./data/context.db"}`);
+  });
+}).catch((err) => {
+  console.error(`[context-server] ❌ Database init failed:`, err);
+  process.exit(1);
 });
