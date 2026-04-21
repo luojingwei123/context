@@ -354,8 +354,21 @@ router.post("/spaces/:id/notify", async (req, res) => {
     
     // Build structured message from annotations
     let finalMessage = message || "";
-    const baseUrl = `${req.protocol}://${req.get("host")}`;
+    // Force https for Render (reverse proxy strips protocol)
+    const host = req.get("host") || "localhost";
+    const baseUrl = host.includes("localhost") ? `http://${host}` : `https://${host}`;
+    
     if (annotations && Array.isArray(annotations) && annotations.length > 0) {
+      // Try to fetch file content for fallback original text
+      let fileContent: string | null = null;
+      const fp0 = annotations[0]?.filePath || filePath;
+      if (fp0) {
+        try {
+          const f = await storage.getFile(req.params.id, fp0);
+          if (f) fileContent = f.content;
+        } catch (_) {}
+      }
+      
       const parts = annotations.map((a: any, i: number) => {
         const lines: string[] = [];
         lines.push(`📋 批注任务 #${i + 1}`);
@@ -367,7 +380,16 @@ router.post("/spaces/:id/notify", async (req, res) => {
         }
         lines.push(`📝 批注人：${a.author}`);
         lines.push(`💬 要求：${a.content}`);
-        if (a.selectedText) lines.push(`📎 原文：「${a.selectedText}」`);
+        // Original text: use selectedText, or extract from file content
+        let origText = a.selectedText || "";
+        if (!origText && fileContent && a.line > 0) {
+          // For HTML content, extract text from DOM-like elements
+          const textLines = fileContent.replace(/<[^>]+>/g, "\n").split("\n").filter((l: string) => l.trim());
+          const startIdx = Math.max(0, a.line - 1);
+          const endIdx = a.endLine > a.line ? Math.min(textLines.length, a.endLine) : startIdx + 1;
+          origText = textLines.slice(startIdx, endIdx).join(" ").trim().substring(0, 300);
+        }
+        if (origText) lines.push(`📎 原文：「${origText}」`);
         if (a.screenshotUrl) lines.push(`🖼️ 截图：${a.screenshotUrl}`);
         const fp = encodeURIComponent(a.filePath || filePath || "");
         if (fp) lines.push(`🔗 查看：${baseUrl}/s/${req.params.id}/file/${fp}`);
