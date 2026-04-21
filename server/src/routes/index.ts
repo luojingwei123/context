@@ -1794,7 +1794,7 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
         <h1 style="font-size:18px;">${esc(filePath)}</h1>
         <div class="btn-group">
           <button class="btn" onclick="showRefModal()">🔗 引用</button>
-          <a href="/s/${spaceId}/edit/${filePath}" class="btn">✏️ 编辑</a>
+          ${isDocxHtml ? '' : `<a href="/s/${spaceId}/edit/${filePath}" class="btn">✏️ 编辑</a>`}
           <a href="/s/${spaceId}/history/${filePath}" class="btn">📜 历史</a>
           <form method="POST" action="/s/${spaceId}/delete/${filePath}" style="display:inline;" onsubmit="return confirm('确定删除？')">
             <button type="submit" class="btn btn-danger">🗑️</button>
