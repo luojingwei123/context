@@ -1884,7 +1884,7 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
       var ta = document.getElementById('sourceEditor');
       if (IS_DOCX) {
         // For docx HTML: just render the HTML directly
-        previewPanel.innerHTML = source;
+        previewPanel.innerHTML = ta.value;
         renderAnnBubbles();
       } else if (IS_MD) {
         document.getElementById('previewPanel').innerHTML = miniMdToHtml(ta.value);
@@ -1998,7 +1998,6 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
         if (data.annotation) {
           serverAnns.push(data.annotation);
           renderAnnBubbles();
-          renderAnnList();
           var badge = document.getElementById('annBadge');
           if (badge) { badge.textContent = serverAnns.length; badge.style.display = 'inline'; }
           showToast('✅ 批注已添加');
@@ -2091,10 +2090,12 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
       btn.disabled = true;
       var body = {
         filePath: FILE_PATH,
-        line: 0, endLine: 0,
+        line: selStartLine || 0, 
+        endLine: selEndLine || 0,
         content: document.getElementById('regionTextarea').value,
         author: document.getElementById('annAuthor') ? document.getElementById('annAuthor').value : 'web-user',
-        authorType: 'human'
+        authorType: 'human',
+        selectedText: selectedText ? selectedText.substring(0, 200) : ''
       };
       fetch('/api/spaces/' + SPACE_ID + '/annotations', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -2103,7 +2104,6 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
         if (data.annotation) {
           serverAnns.push(data.annotation);
           renderAnnBubbles();
-          renderAnnList();
           showToast('✅ 框选批注已添加');
         }
         document.getElementById('regionTextarea').value = '';
@@ -2226,27 +2226,26 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
     function jumpToAnn(i) {
       var a = serverAnns[i];
       if (!a || !a.line) return;
-      var rows = document.querySelectorAll('.code-table tr');
-      var target = rows[a.line - 1];
-      if (target) {
-        // preview always visible
-        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        target.style.background = '#fde68a';
-        setTimeout(function() { target.style.background = ''; }, 2000);
-      }
-    }
-
-    // ── Jump to annotation in preview ──
-    function jumpToAnn(i) {
-      var a = serverAnns[i];
-      if (!a || !a.line) return;
       var panel = document.getElementById('previewPanel');
+      if (!panel) return;
+      // Try code-table rows first
       var rows = panel.querySelectorAll('tr');
       if (rows.length && a.line <= rows.length) {
-        rows[a.line-1].scrollIntoView({ behavior: 'smooth', block: 'center' });
-        rows[a.line-1].style.background = '#fde68a';
-        rows[a.line-1].style.outline = '2px solid #f59e0b';
-        setTimeout(function() { rows[a.line-1].style.background = '#fef3c7'; rows[a.line-1].style.outline = ''; }, 2000);
+        var target = rows[a.line-1];
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        target.style.background = '#fde68a';
+        target.style.outline = '2px solid #f59e0b';
+        setTimeout(function() { target.style.background = '#fef3c7'; target.style.outline = ''; }, 2000);
+        return;
+      }
+      // Try MD block elements
+      var elems = panel.querySelectorAll('h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,table,hr');
+      if (a.line <= elems.length) {
+        var el = elems[a.line-1];
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.style.background = '#fde68a';
+        el.style.outline = '2px solid #f59e0b';
+        setTimeout(function() { el.style.background = ''; el.style.outline = ''; }, 2000);
       }
     }
 
