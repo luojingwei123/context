@@ -89,6 +89,7 @@ export async function initDb(): Promise<void> {
       author_type TEXT NOT NULL DEFAULT 'human',
       status TEXT NOT NULL DEFAULT 'open',
       resolved_by TEXT,
+      assignee TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );

@@ -65,7 +65,7 @@ router.get("/health", (_req, res) => {
   res.json({
     status: "ok",
     service: "context-server",
-    version: "1.12",
+    version: "1.13",
     pluginVersion: "1.0.8",
     updateCommand: "clawhub update context-collab --force",
   });
@@ -407,7 +407,7 @@ router.get("/ctx/:spaceId/*", async (req, res) => {
     if (wantsHtml) {
       // Human browser → rendered page with annotations
       const annotations = await storage.getAnnotations(spaceId, filePath);
-      const ctxUser2 = await getCurrentUser(req); return res.type("text/html").send(renderFilePage(space, file, spaceId, filePath, annotations, req, ctxUser2));
+      const ctxUser2 = await getCurrentUser(req); const members = await storage.getMembers(spaceId); return res.type("text/html").send(renderFilePage(space, file, spaceId, filePath, annotations, req, ctxUser2, members));
     }
 
     if (hasPlugin) {
@@ -706,7 +706,7 @@ router.get("/s/:id/view/*", async (req, res) => {
     const file = await storage.getFile(req.params.id, filePath);
     if (!file) return res.status(404).send(notFoundPage(`File not found: ${filePath}`));
     const annotations = await storage.getAnnotations(req.params.id, filePath);
-    const user = (req as any).ctxUser; let html = renderFilePage(space, file, req.params.id, filePath, annotations, req, user);
+    const user = (req as any).ctxUser; const editMembers = await storage.getMembers(req.params.id); let html = renderFilePage(space, file, req.params.id, filePath, annotations, req, user, editMembers);
     if (req.query.sent === "1") {
       html = html.replace("</h1>", '</h1><div style="background:#dafbe1;border:1px solid #1a7f37;border-radius:6px;padding:10px 14px;margin:8px 0;color:#1a7f37;">✅ 已发送到群聊</div>');
     }
@@ -1307,8 +1307,9 @@ const CSS = `
   .split-divider { width: 4px; background: var(--border); cursor: col-resize; flex-shrink: 0; transition: background .2s; }
   .split-divider:hover, .split-divider.dragging { background: var(--primary); }
   /* Right panel tabs */
-  /* Annotation margin bubbles */
-  .ann-margin-bubble { position: relative; margin: 8px 0; padding: 8px 12px; background: #fef3c7; border-left: 3px solid #f59e0b; border-radius: 0 var(--radius) var(--radius) 0; font-size: 12px; line-height: 1.5; cursor: pointer; transition: background .15s; }
+  /* Annotation sidebar */
+  .ann-sidebar { width: 260px; min-width: 260px; border-left: 1px solid var(--border); overflow-y: auto; background: var(--bg-page); }
+  .ann-margin-bubble { position: relative; margin: 6px 8px; padding: 8px 10px; background: #fff; border-left: 3px solid #f59e0b; border-radius: 0 var(--radius) var(--radius) 0; font-size: 12px; line-height: 1.5; cursor: pointer; transition: all .15s; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
   .ann-margin-bubble:hover { background: #fde68a; }
   .ann-margin-bubble .ann-bubble-author { font-weight: 600; color: var(--text-secondary); font-size: 11px; }
   .ann-margin-bubble .ann-bubble-content { color: var(--text); margin-top: 2px; }
@@ -1528,7 +1529,7 @@ async function renderSpacePage(spaceId: string, space: any, user?: any): Promise
   `);
 }
 
-function renderFilePage(space: any, file: any, spaceId: string, filePath: string, annotations?: any[], req?: any, user?: any): string {
+function renderFilePage(space: any, file: any, spaceId: string, filePath: string, annotations?: any[], req?: any, user?: any, members?: any[]): string {
   const openAnns = (annotations || []).filter((a: any) => a.status === "open");
   const resolvedAnns = (annotations || []).filter((a: any) => a.status === "resolved");
 
@@ -1720,7 +1721,7 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
     </div>
 
     <!-- Annotation input box (appears near selection) -->
-    <div id="annInputBox" style="display:none;position:fixed;width:340px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-md);padding:14px;z-index:9998;">
+    <div id="annInputBox" style="display:none;position:fixed;width:340px;background:#ffffff;border:1px solid #d1d5db;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.25);padding:16px;z-index:9998;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
         <b style="font-size:13px;">📝 添加批注</b>
         <span onclick="hideAnnInput()" style="cursor:pointer;font-size:18px;color:var(--text-muted);">✕</span>
@@ -1739,7 +1740,7 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
     </div>
 
     <!-- Region annotation input -->
-    <div id="regionInputBox" style="display:none;position:fixed;width:300px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-md);padding:14px;z-index:500;">
+    <div id="regionInputBox" style="display:none;position:fixed;width:300px;background:#ffffff;border:1px solid #d1d5db;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.25);padding:16px;z-index:500;">
       <div id="regionThumb" style="background:linear-gradient(135deg,#f0ecff,#e8e4ff);border:1px dashed var(--primary);border-radius:var(--radius);padding:8px;text-align:center;font-size:11px;color:var(--primary);margin-bottom:8px;">📐 已选区域</div>
       <form method="POST" action="/s/${spaceId}/annotate">
         <input type="hidden" name="filePath" value="${esc(filePath)}">
@@ -1789,26 +1790,41 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
 
     // ── Render annotation bubbles inline in preview ──
     function renderAnnBubbles() {
-      document.querySelectorAll('.ann-margin-bubble').forEach(function(el) { el.remove(); });
-      var panel = document.getElementById('previewPanel');
-      if (!panel || !serverAnns.length) return;
-      serverAnns.forEach(function(a) {
-        var bubble = document.createElement('div');
-        bubble.className = 'ann-margin-bubble';
-        bubble.innerHTML = '<div class="ann-bubble-author">' + (a.authorType==='human'?'👤':'🤖') + ' ' + escH(a.author) + ' · ' + (a.line>0?'第'+a.line+(a.endLine>a.line?'-'+a.endLine:'')+'行':'全文') + '</div>' +
-          '<div class="ann-bubble-content">' + escH(a.content) + '</div>' +
-          '<div class="ann-bubble-actions">' +
-            '<form method="POST" action="/s/'+SPACE_ID+'/resolve-annotation/'+a.id+'" style="display:inline;"><input type="hidden" name="filePath" value="'+FILE_PATH+'"><button type="submit" class="btn-small">✅</button></form> ' +
-            '<form method="POST" action="/s/'+SPACE_ID+'/annotation-to-task/'+a.id+'" style="display:inline;"><input type="hidden" name="filePath" value="'+FILE_PATH+'"><button type="submit" class="btn-small">📋</button></form>' +
+      // Render annotations in the sidebar panel (right side of preview)
+      var sidebar = document.getElementById('annSidebar');
+      if (!sidebar) return;
+      if (!serverAnns.length) {
+        sidebar.style.display = 'none';
+        return;
+      }
+      sidebar.style.display = 'block';
+      sidebar.innerHTML = '<div style="padding:8px 12px;font-size:12px;font-weight:600;color:var(--text-secondary);border-bottom:1px solid var(--border);">💬 批注 (' + serverAnns.length + ')</div>' +
+        serverAnns.map(function(a, i) {
+          return '<div class="ann-margin-bubble" onclick="jumpToAnn('+i+')">' +
+            '<div class="ann-bubble-author">' + (a.authorType==='human'?'👤':'🤖') + ' ' + escH(a.author) + '</div>' +
+            '<div style="font-size:10px;color:var(--text-muted);">' + (a.line>0?'第'+a.line+(a.endLine>a.line?'-'+a.endLine:'')+'行':'全文') + '</div>' +
+            '<div class="ann-bubble-content">' + escH(a.content) + '</div>' +
+            '<div class="ann-bubble-actions">' +
+              '<form method="POST" action="/s/'+SPACE_ID+'/resolve-annotation/'+a.id+'" style="display:inline;" onclick="event.stopPropagation()"><input type="hidden" name="filePath" value="'+FILE_PATH+'"><button type="submit" class="btn-small">✅ 处理</button></form> ' +
+              '<form method="POST" action="/s/'+SPACE_ID+'/annotation-to-task/'+a.id+'" style="display:inline;" onclick="event.stopPropagation()"><input type="hidden" name="filePath" value="'+FILE_PATH+'"><button type="submit" class="btn-small">📋 任务</button></form>' +
+            '</div>' +
           '</div>';
-        // Insert after relevant line
-        if (a.line > 0) {
-          var rows = panel.querySelectorAll('tr');
-          if (rows.length && a.line <= rows.length) { rows[a.line-1].parentNode.insertBefore(bubble, rows[a.line-1].nextSibling); return; }
-          var elems = panel.querySelectorAll('h1,h2,h3,h4,p,li,blockquote,pre');
-          if (elems.length && a.line <= elems.length) { elems[a.line-1].parentNode.insertBefore(bubble, elems[a.line-1].nextSibling); return; }
+        }).join('');
+      // Also highlight annotated lines in preview
+      highlightAnnotatedLines();
+    }
+    function highlightAnnotatedLines() {
+      var panel = document.getElementById('previewPanel');
+      if (!panel) return;
+      // Highlight lines in code tables
+      var rows = panel.querySelectorAll('tr');
+      serverAnns.forEach(function(a) {
+        if (a.line > 0 && rows.length >= a.line) {
+          for (var l = a.line; l <= (a.endLine || a.line) && l <= rows.length; l++) {
+            rows[l-1].style.background = '#fef3c7';
+            rows[l-1].style.borderLeft = '3px solid #f59e0b';
+          }
         }
-        panel.appendChild(bubble);
       });
     }
 
@@ -1872,7 +1888,7 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
         setTimeout(function() {
           var sel = window.getSelection();
           if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
-          selectedText = sel.toString().trim();
+          selectedText = sel.toString().trim().substring(0, 500); // limit selection size
           // Find line numbers from code-table if present
           function findRow(node) { while (node && node.tagName !== 'TR') node = node.parentElement; return node; }
           var startRow = findRow(sel.anchorNode);
@@ -1911,6 +1927,7 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
         try {
           if (_tempHighlight) { _tempHighlight.replaceWith(document.createTextNode(_tempHighlight.textContent)); _tempHighlight = null; }
           var span = document.createElement('span');
+          span.className = 'ann-highlight';
           span.style.cssText = 'background:#fef3c7;border-bottom:2px solid #f59e0b;border-radius:2px;';
           range.surroundContents(span);
           _tempHighlight = span;
@@ -1990,8 +2007,12 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
       document.addEventListener('mouseup', onRegionEnd, { capture: true });
       e.preventDefault();
     }
+    var _regionMoveThrottle = 0;
     function onRegionMove(e) {
       if (!regionStart) return;
+      var now = Date.now();
+      if (now - _regionMoveThrottle < 16) return; // ~60fps throttle
+      _regionMoveThrottle = now;
       var x = Math.min(e.clientX, regionStart.x), y = Math.min(e.clientY, regionStart.y);
       var w = Math.abs(e.clientX - regionStart.x), h = Math.abs(e.clientY - regionStart.y);
       regionRect = { x:x, y:y, w:w, h:h };
@@ -2045,6 +2066,20 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
         target.scrollIntoView({ behavior: 'smooth', block: 'center' });
         target.style.background = '#fde68a';
         setTimeout(function() { target.style.background = ''; }, 2000);
+      }
+    }
+
+    // ── Jump to annotation in preview ──
+    function jumpToAnn(i) {
+      var a = serverAnns[i];
+      if (!a || !a.line) return;
+      var panel = document.getElementById('previewPanel');
+      var rows = panel.querySelectorAll('tr');
+      if (rows.length && a.line <= rows.length) {
+        rows[a.line-1].scrollIntoView({ behavior: 'smooth', block: 'center' });
+        rows[a.line-1].style.background = '#fde68a';
+        rows[a.line-1].style.outline = '2px solid #f59e0b';
+        setTimeout(function() { rows[a.line-1].style.background = '#fef3c7'; rows[a.line-1].style.outline = ''; }, 2000);
       }
     }
 

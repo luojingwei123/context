@@ -392,13 +392,13 @@ export async function getAnnotations(spaceId: string, filePath?: string, status?
   return result.rows.map(rowToAnnotation);
 }
 
-export async function addAnnotation(spaceId: string, ann: { filePath: string; line: number; endLine?: number; content: string; author: string; authorType?: string }): Promise<Annotation> {
+export async function addAnnotation(spaceId: string, ann: { filePath: string; line: number; endLine?: number; content: string; author: string; authorType?: string; assignee?: string }): Promise<Annotation> {
   const db = getDb();
   const id = nanoid(12);
   const now = new Date().toISOString();
   await db.execute({
-    sql: "INSERT INTO annotations (id, space_id, file_path, line, end_line, content, author, author_type, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)",
-    args: [id, spaceId, ann.filePath, ann.line || 0, ann.endLine || 0, ann.content, ann.author, ann.authorType || "human", now, now],
+    sql: "INSERT INTO annotations (id, space_id, file_path, line, end_line, content, author, author_type, assignee, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)",
+    args: [id, spaceId, ann.filePath, ann.line || 0, ann.endLine || 0, ann.content, ann.author, ann.authorType || "human", ann.assignee || null, now, now],
   });
   return {
     id,
