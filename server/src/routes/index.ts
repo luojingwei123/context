@@ -1352,6 +1352,9 @@ const CSS = `
   #previewPanel[contenteditable="true"] td, #previewPanel[contenteditable="true"] th { border: 1px solid #d1d5db; padding: 6px 10px; }
   #previewPanel[contenteditable="true"] ul, #previewPanel[contenteditable="true"] ol { margin: 8px 0 8px 20px; }
   #previewPanel[contenteditable="true"]:focus { outline: none; box-shadow: inset 0 0 0 2px rgba(59,130,246,0.1); }
+  #docxToolbar .tb { background: #fff; border: 1px solid #d1d5db; border-radius: 4px; padding: 3px 8px; font-size: 11px; cursor: pointer; color: #374151; min-width: 28px; text-align: center; }
+  #docxToolbar .tb:hover { background: #e5e7eb; }
+  #docxToolbar .tb:active { background: #dbeafe; border-color: #93c5fd; }
   /* Annotation cards in sidebar */
   .ann-card { padding: 10px 14px; background: var(--bg-page); border-radius: var(--radius); margin: 6px 10px; font-size: 13px; transition: background .15s; border-left: 3px solid transparent; }
   .ann-card:hover { background: var(--bg-hover); border-left-color: var(--primary); }
@@ -1692,10 +1695,43 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
             </div>
           </div>
         </div>
+        <div id="docxToolbar" style="display:flex;gap:2px;padding:6px 12px;border-bottom:1px solid #e5e7eb;background:#f9fafb;flex-wrap:wrap;align-items:center;">
+          <button onclick="document.execCommand('bold')" title="加粗" style="font-weight:700;" class="tb">B</button>
+          <button onclick="document.execCommand('italic')" title="斜体" style="font-style:italic;" class="tb">I</button>
+          <button onclick="document.execCommand('underline')" title="下划线" style="text-decoration:underline;" class="tb">U</button>
+          <button onclick="document.execCommand('strikeThrough')" title="删除线" style="text-decoration:line-through;" class="tb">S</button>
+          <span style="width:1px;height:16px;background:#d1d5db;margin:0 4px;"></span>
+          <button onclick="document.execCommand('formatBlock',false,'h1')" title="标题1" class="tb">H1</button>
+          <button onclick="document.execCommand('formatBlock',false,'h2')" title="标题2" class="tb">H2</button>
+          <button onclick="document.execCommand('formatBlock',false,'h3')" title="标题3" class="tb">H3</button>
+          <button onclick="document.execCommand('formatBlock',false,'p')" title="正文" class="tb">P</button>
+          <span style="width:1px;height:16px;background:#d1d5db;margin:0 4px;"></span>
+          <button onclick="document.execCommand('justifyLeft')" title="左对齐" class="tb">⬅</button>
+          <button onclick="document.execCommand('justifyCenter')" title="居中" class="tb">≡</button>
+          <button onclick="document.execCommand('justifyRight')" title="右对齐" class="tb">➡</button>
+          <span style="width:1px;height:16px;background:#d1d5db;margin:0 4px;"></span>
+          <button onclick="document.execCommand('insertUnorderedList')" title="无序列表" class="tb">• 列表</button>
+          <button onclick="document.execCommand('insertOrderedList')" title="有序列表" class="tb">1. 列表</button>
+          <span style="width:1px;height:16px;background:#d1d5db;margin:0 4px;"></span>
+          <select onchange="document.execCommand('fontSize',false,this.value);this.value=''" style="font-size:11px;padding:2px 4px;border:1px solid #d1d5db;border-radius:4px;background:#fff;color:#374151;">
+            <option value="">字号</option>
+            <option value="1">小</option>
+            <option value="3">中</option>
+            <option value="5">大</option>
+            <option value="7">特大</option>
+          </select>
+          <select onchange="document.execCommand('foreColor',false,this.value);this.value=''" style="font-size:11px;padding:2px 4px;border:1px solid #d1d5db;border-radius:4px;background:#fff;color:#374151;">
+            <option value="">颜色</option>
+            <option value="#ef4444" style="color:#ef4444;">红色</option>
+            <option value="#3b82f6" style="color:#3b82f6;">蓝色</option>
+            <option value="#22c55e" style="color:#22c55e;">绿色</option>
+            <option value="#f59e0b" style="color:#f59e0b;">橙色</option>
+            <option value="#1f2937">黑色</option>
+          </select>
+        </div>
         <div id="previewPanel" contenteditable="true" style="flex:1;overflow:auto;padding:40px 60px;line-height:1.8;font-size:15px;color:#1f2937;outline:none;background:#fff;position:relative;" oninput="onDocxEdit()">
           ${file.content}
         </div>
-        <div style="text-align:center;padding:6px;font-size:11px;color:#9ca3af;background:#f9fafb;border-top:1px solid #e5e7eb;">✏️ 点击文字即可编辑 · 自动保存</div>
       </div>
       <div id="annSidebar" class="ann-sidebar"><div style="padding:12px 16px;font-size:13px;font-weight:600;color:#6b7280;border-bottom:1px solid #e5e7eb;">💬 评论</div><div id="annCards"><div style="padding:40px 20px;text-align:center;color:#9ca3af;font-size:13px;line-height:1.6;">📝 选中文字后<br>可添加评论</div></div></div>
     </div>`;
