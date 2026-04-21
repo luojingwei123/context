@@ -151,4 +151,12 @@ export async function initDb(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_user_spaces_user ON user_spaces(user_id);
     CREATE INDEX IF NOT EXISTS idx_user_spaces_space ON user_spaces(space_id);
   `);
+
+  // Migrations for existing databases
+  const migrations = [
+    "ALTER TABLE annotations ADD COLUMN assignee TEXT",
+  ];
+  for (const m of migrations) {
+    try { await db.execute(m); console.log("[DB] Migration OK:", m); } catch (_e) { /* column exists */ }
+  }
 }
