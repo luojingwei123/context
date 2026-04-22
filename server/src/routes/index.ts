@@ -56,8 +56,8 @@ function getSessionToken(req: any): string | null {
   const match = cookie.match(/ctx_session=([^;]+)/);
   return match ? match[1] : null;
 }
-function setSessionCookie(res: any, token: string) {
-  const isSecure = process.env.NODE_ENV === "production" || process.env.RENDER === "true";
+function setSessionCookie(res: any, token: string, req?: any) {
+  const isSecure = req ? (req.headers["x-forwarded-proto"] === "https" || req.protocol === "https") : false;
   res.setHeader("Set-Cookie", `ctx_session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30 * 86400}${isSecure ? "; Secure" : ""}`);
 }
 function clearSessionCookie(res: any) {
@@ -674,7 +674,7 @@ router.post("/auth/login", async (req, res) => {
     }
     const token = await storage.createSession(user.id);
     await storage.updateUserLogin(user.id);
-    setSessionCookie(res, token);
+    setSessionCookie(res, token, req);
     res.redirect("/s");
   } catch (err: any) { res.redirect("/auth/login?error=" + encodeURIComponent(err.message)); }
 });
@@ -739,7 +739,7 @@ router.post("/auth/register", async (req, res) => {
     const hash = hashPassword(password);
     const user = await storage.createUser(cleanUsername, displayName.trim(), hash);
     const token = await storage.createSession(user.id);
-    setSessionCookie(res, token);
+    setSessionCookie(res, token, req);
     res.redirect("/s");
   } catch (err: any) { res.redirect("/auth/register?error=" + encodeURIComponent(err.message)); }
 });

@@ -32,6 +32,7 @@ if (AUTH_TOKEN) {
 }
 
 const app = express();
+app.set("trust proxy", 1); // Trust Render's reverse proxy (needed for Secure cookies + correct req.protocol)
 
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
