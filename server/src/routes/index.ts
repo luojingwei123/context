@@ -1968,14 +1968,19 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
       container.innerHTML = serverAnns.map(function(a, i) {
         var quote = a.selectedText ? '<div class="ann-card-quote">「' + escH(a.selectedText).substring(0, 60) + '」</div>' : '';
         var loc = a.line > 0 ? '第' + a.line + (a.endLine > a.line ? '-' + a.endLine : '') + '行' : '';
-        return '<div class="ann-card" data-ann-idx="' + i + '" onclick="jumpToAnn(' + i + ')">' +
+        var isDone = a.status === 'done';
+        var borderStyle = isDone ? 'border-left:3px solid #4caf50;' : '';
+        var statusTag = isDone ? '<span style="color:#4caf50;font-weight:600;font-size:11px;">✅ ' + escH(a.resolvedBy || '') + '已完成，待验收</span>' : '';
+        var actions = isDone
+          ? '<form method="POST" action="/s/'+SPACE_ID+'/resolve-annotation/'+a.id+'" style="display:inline;" onclick="event.stopPropagation()"><input type="hidden" name="filePath" value="'+FILE_PATH+'"><button type="submit" class="btn-small" style="font-size:11px;background:#4caf50;color:#fff;">✅ 验收归档</button></form>'
+          : '<form method="POST" action="/s/'+SPACE_ID+'/resolve-annotation/'+a.id+'" style="display:inline;" onclick="event.stopPropagation()"><input type="hidden" name="filePath" value="'+FILE_PATH+'"><button type="submit" class="btn-small" style="font-size:11px;">📦 归档</button></form> ' +
+            '<button class="btn-small" style="font-size:11px;" onclick="event.stopPropagation();sendAnnToGroup('+i+')">📢 发到群</button>';
+        return '<div class="ann-card" data-ann-idx="' + i + '" onclick="jumpToAnn(' + i + ')" style="' + borderStyle + '">' +
           '<div class="ann-card-author">' + (a.authorType==='human'?'👤':'🤖') + ' ' + escH(a.author) + (loc ? ' · ' + loc : '') + '</div>' +
+          (statusTag ? '<div style="margin:4px 0;">' + statusTag + '</div>' : '') +
           quote +
           '<div class="ann-card-content">' + escH(a.content) + '</div>' +
-          '<div class="ann-card-actions">' +
-            '<form method="POST" action="/s/'+SPACE_ID+'/resolve-annotation/'+a.id+'" style="display:inline;" onclick="event.stopPropagation()"><input type="hidden" name="filePath" value="'+FILE_PATH+'"><button type="submit" class="btn-small" style="font-size:11px;">📦 归档</button></form> ' +
-            '<button class="btn-small" style="font-size:11px;" onclick="event.stopPropagation();sendAnnToGroup('+i+')">📢 发到群</button>' +
-          '</div>' +
+          '<div class="ann-card-actions">' + actions + '</div>' +
         '</div>';
       }).join('');
       
@@ -2379,7 +2384,7 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
     }
 
     // ── Annotation list rendering ──
-    var serverAnns = ${JSON.stringify(openAnns.map((a: any) => ({ id: a.id, line: a.line, endLine: a.endLine, content: a.content, author: a.author, authorType: a.authorType, createdAt: a.createdAt, selectedText: a.selectedText || '' })))};
+    var serverAnns = ${JSON.stringify([...openAnns, ...doneAnns].map((a: any) => ({ id: a.id, line: a.line, endLine: a.endLine, content: a.content, author: a.author, authorType: a.authorType, status: a.status, resolvedBy: a.resolvedBy || '', assignee: a.assignee || '', createdAt: a.createdAt, selectedText: a.selectedText || '' })))};
     function renderAnnList() {
       var badge = document.getElementById('annBadge');
       if (serverAnns.length === 0) {
@@ -2469,10 +2474,14 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
           '<button onclick="sendCartChecked()" style="font-size:11px;padding:3px 10px;border:1px solid #6366F1;border-radius:4px;background:#6366F1;color:#fff;cursor:pointer;">📢 发到群</button>' +
           '</div></div>' +
           serverAnns.map(function(a, i) {
-            return '<div style="padding:8px;border-bottom:1px solid var(--border);font-size:12px;display:flex;gap:6px;align-items:flex-start;">' +
+            var isDone = a.status === 'done';
+            var doneTag = isDone ? '<div style="color:#4caf50;font-size:11px;font-weight:600;margin:2px 0;">✅ ' + escH(a.resolvedBy||'') + '已完成，待验收</div>' : '';
+            var leftBorder = isDone ? 'border-left:3px solid #4caf50;' : '';
+            return '<div style="padding:8px;border-bottom:1px solid var(--border);font-size:12px;display:flex;gap:6px;align-items:flex-start;' + leftBorder + '">' +
               '<input type="checkbox" class="cart-check" data-idx="' + i + '" style="margin-top:3px;flex-shrink:0;">' +
               '<div style="flex:1;cursor:pointer;" onclick="jumpToAnn(' + i + ')">' +
               '<div style="font-weight:600;cursor:pointer;">' + (a.authorType==='human'?'👤':'🤖') + ' ' + escH(a.author) + ' · ' + (a.line>0?'第'+a.line+'行':'全文') + '</div>' +
+              doneTag +
               (a.selectedText ? '<div style="background:#f9fafb;border-left:2px solid #d1d5db;padding:2px 6px;margin:4px 0;color:#6b7280;font-size:11px;">「' + escH(a.selectedText).substring(0,80) + '」</div>' : '') +
               '<div style="color:var(--text-secondary);margin-top:2px;">' + escH(a.content).substring(0,60) + '</div>' +
               '</div>' +
