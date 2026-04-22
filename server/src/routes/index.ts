@@ -836,66 +836,68 @@ router.get("/s", async (req: any, res) => {
         </div>`;
 
     res.type("text/html").send(page("我的空间", user, `
-      <div class="hero" style="padding:36px 24px 28px;">
+      <div class="hero">
         <div class="hero-glow"></div>
-        <h1>我的空间</h1>
-        <p class="hero-desc">欢迎回来，${esc(user.displayName)}</p>
+        <h1>Context</h1>
+        <p class="hero-desc">欢迎回来，${esc(user.displayName)}。<br>你的协作空间，触手可及。</p>
       </div>
 
-      <div class="card glass fade-in">
-        <div class="card-header">
-          <h2 style="margin:0;">📦 我的空间</h2>
-          <span class="badge badge-channel">${mySpaces.length} 个空间</span>
+      <div style="margin-bottom:var(--sp-10);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--sp-5);">
+          <h2 style="margin:0;font-size:28px;font-weight:600;">我的空间</h2>
+          <span style="font-size:14px;color:var(--ink-4);">${mySpaces.length} 个空间</span>
         </div>
         ${spacesHtml}
       </div>
 
-      <div class="card glass fade-in">
-        <div class="card-header">
-          <h2 style="margin:0;">🔗 加入空间</h2>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-4);margin-bottom:var(--sp-10);">
+        <div class="card glass fade-in">
+          <h3 style="margin-bottom:var(--sp-4);font-size:19px;">加入空间</h3>
+          <p style="font-size:14px;color:var(--ink-3);margin-bottom:var(--sp-5);">通过 Space ID 加入已有的协作空间。</p>
+          <form method="POST" action="/s/join" style="display:flex;gap:var(--sp-3);">
+            <input name="spaceId" placeholder="输入 Space ID" style="flex:1;" required>
+            <button type="submit" class="btn btn-primary">加入</button>
+          </form>
         </div>
-        <form method="POST" action="/s/join" style="display:flex;gap:8px;">
-          <input name="spaceId" placeholder="输入 Space ID" style="flex:1;" required>
-          <button type="submit" class="btn btn-primary">加入 →</button>
-        </form>
-      </div>
-
-      <div class="card glass fade-in">
-        <div class="card-header">
-          <h2 style="margin:0;">➕ 创建新空间</h2>
+        <div class="card glass fade-in">
+          <h3 style="margin-bottom:var(--sp-4);font-size:19px;">创建空间</h3>
+          <p style="font-size:14px;color:var(--ink-3);margin-bottom:var(--sp-5);">开始一个全新的协作项目。</p>
+          <details>
+            <summary style="color:var(--brand);font-weight:500;font-size:15px;cursor:pointer;">开始创建 →</summary>
+            <form method="POST" action="/s/create" class="form-grid" style="margin-top:var(--sp-4);">
+              <div class="form-row">
+                <div class="form-group"><label>空间名称</label><input name="name" required placeholder="My Project"></div>
+                <div class="form-group"><label>Channel</label><select name="channel"><option>discord</option><option>dmwork</option><option>telegram</option><option>slack</option><option>webchat</option></select></div>
+              </div>
+              <div class="form-row">
+                <div class="form-group"><label>Group ID</label><input name="groupId" required placeholder="群 / 服务器 ID"></div>
+                <div class="form-group">
+                  <label>模板</label>
+                  <select name="template">
+                    <option value="software-dev">🛠 软件开发</option>
+                    <option value="content">📝 内容创作</option>
+                    <option value="research">🔬 研究项目</option>
+                    <option value="blank">📄 空白</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label>通知 Bot（可选）</label>
+                  <select name="notifyBotId" id="notifyBotSelect"><option value="">不使用 Bot 通知</option></select>
+                  <small style="color:var(--text-muted);margin-top:4px;">选择一个 Bot，批注发到群时自动推送</small>
+                </div>
+              </div>
+              <script>
+                fetch('/api/bots').then(r=>r.json()).then(d=>{
+                  var sel=document.getElementById('notifyBotSelect');
+                  (d.bots||[]).forEach(function(b){var o=document.createElement('option');o.value=b.id;o.textContent=b.name+' ('+b.channel+')';sel.appendChild(o);});
+                });
+              </script>
+              <button type="submit" class="btn btn-primary" style="align-self:flex-start;">创建空间</button>
+            </form>
+          </details>
         </div>
-        <form method="POST" action="/s/create" class="form-grid">
-          <div class="form-row">
-            <div class="form-group"><label>空间名称</label><input name="name" required placeholder="My Project"></div>
-            <div class="form-group"><label>Channel</label><select name="channel"><option>discord</option><option>dmwork</option><option>telegram</option><option>slack</option><option>webchat</option></select></div>
-          </div>
-          <div class="form-row">
-            <div class="form-group"><label>Group ID</label><input name="groupId" required placeholder="群 / 服务器 ID"></div>
-            <div class="form-group">
-              <label>模板</label>
-              <select name="template">
-                <option value="software-dev">🛠 软件开发</option>
-                <option value="content">📝 内容创作</option>
-                <option value="research">🔬 研究项目</option>
-                <option value="blank">📄 空白</option>
-              </select>
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>📢 通知 Bot（可选）</label>
-              <select name="notifyBotId" id="notifyBotSelect"><option value="">-- 不使用 Bot 通知 --</option></select>
-              <small style="color:var(--text-muted);">选择一个 Bot，批注"发到群"时自动用它推送</small>
-            </div>
-          </div>
-          <script>
-            fetch('/api/bots').then(r=>r.json()).then(d=>{
-              var sel=document.getElementById('notifyBotSelect');
-              (d.bots||[]).forEach(function(b){var o=document.createElement('option');o.value=b.id;o.textContent=b.name+' ('+b.channel+')';sel.appendChild(o);});
-            });
-          </script>
-          <button type="submit" class="btn btn-primary" style="align-self:flex-start;">🚀 创建空间</button>
-        </form>
       </div>
     `));
   } catch (err: any) { res.status(500).send(err.message); }
