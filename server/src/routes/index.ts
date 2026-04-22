@@ -271,10 +271,10 @@ router.get("/spaces/:id/annotations", async (req, res) => {
 /** Add annotation */
 router.post("/spaces/:id/annotations", async (req, res) => {
   try {
-    const { filePath, line, endLine, content, author, authorType } = req.body;
+    const { filePath, line, endLine, content, author, authorType, assignee, selectedText } = req.body;
     if (!filePath || !content || !author) return res.status(400).json({ error: "filePath, content, author required" });
     const ann = await storage.addAnnotation(req.params.id, {
-      filePath, line: line || 0, endLine: endLine || 0, content, author, authorType: authorType || "human",
+      filePath, line: line || 0, endLine: endLine || 0, content, author, authorType: authorType || "human", assignee, selectedText,
     });
     res.status(201).json({ annotation: ann });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
@@ -1602,6 +1602,7 @@ async function renderSpacePage(spaceId: string, space: any, user?: any): Promise
 
 function renderFilePage(space: any, file: any, spaceId: string, filePath: string, annotations?: any[], req?: any, user?: any, members?: any[]): string {
   const openAnns = (annotations || []).filter((a: any) => a.status === "open");
+  const doneAnns = (annotations || []).filter((a: any) => a.status === "done");
   const resolvedAnns = (annotations || []).filter((a: any) => a.status === "resolved");
 
   // Render content with line numbers for annotation reference
@@ -1647,14 +1648,34 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
     `).join("")
     : '<div class="empty-state" style="padding:20px;"><p style="color:var(--text-muted);">暂无批注</p></div>';
 
+  const doneHtml2 = doneAnns.length > 0
+    ? `<h4 style="margin:12px 0 6px;">✅ 已完成，待验收 (${doneAnns.length})</h4>` +
+      doneAnns.map((a: any) => `
+        <div class="annotation" style="border-left:3px solid #4caf50;">
+          <div class="ann-header">
+            ${a.authorType === "human" ? "👤" : "🤖"} <b>${esc(a.author)}</b>
+            · ${a.line > 0 ? `第 ${a.line}${a.endLine > a.line ? `-${a.endLine}` : ''} 行` : '全文'}
+            · ✅ <b>${esc(a.resolvedBy || "")}已完成</b>
+          </div>
+          <div class="ann-content">${esc(a.content)}</div>
+          <div class="ann-actions">
+            <form method="POST" action="/s/${spaceId}/resolve-annotation/${a.id}" style="display:inline;">
+              <input type="hidden" name="filePath" value="${esc(filePath)}">
+              <button type="submit" class="btn-small" style="background:#4caf50;color:#fff;">✅ 验收归档</button>
+            </form>
+          </div>
+        </div>
+      `).join("")
+    : '';
+
   const resolvedHtml = resolvedAnns.length > 0
-    ? `<details><summary>已处理的批注 (${resolvedAnns.length})</summary>` +
+    ? `<details><summary>已归档 (${resolvedAnns.length})</summary>` +
       resolvedAnns.map((a: any) => `
         <div class="annotation resolved">
           <div class="ann-header">
             ${a.authorType === "human" ? "👤" : "🤖"} <b>${esc(a.author)}</b>
             · ${a.line > 0 ? `第 ${a.line} 行` : '全文'}
-            · ✅ ${esc(a.resolvedBy || "")} 已处理
+            · 📦 ${esc(a.resolvedBy || "")}
           </div>
           <div class="ann-content">${esc(a.content)}</div>
         </div>

@@ -396,7 +396,7 @@ export async function getAnnotations(spaceId: string, filePath?: string, status?
   return result.rows.map(rowToAnnotation);
 }
 
-export async function addAnnotation(spaceId: string, ann: { filePath: string; line: number; endLine?: number; content: string; author: string; authorType?: string; assignee?: string }): Promise<Annotation> {
+export async function addAnnotation(spaceId: string, ann: { filePath: string; line: number; endLine?: number; content: string; author: string; authorType?: string; assignee?: string; selectedText?: string }): Promise<Annotation> {
   const db = getDb();
   const id = nanoid(12);
   const now = new Date().toISOString();
@@ -414,6 +414,7 @@ export async function addAnnotation(spaceId: string, ann: { filePath: string; li
     author: ann.author,
     authorType: (ann.authorType || "human") as "human" | "agent",
     status: "open",
+    assignee: ann.assignee || undefined,
     createdAt: now,
     updatedAt: now,
   };
