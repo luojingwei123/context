@@ -116,14 +116,14 @@ export const CSS = `
   .form-group { display: flex; flex-direction: column; }
   .form-group input, .form-group select, .form-group textarea { margin-top: 0; }
 
-  /* ── Tables（DM3: 12px Medium 表头，13px 内容，~48px 行高） ── */
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th, td { padding: var(--sp-3) var(--sp-4); text-align: left; border-bottom: 1px solid var(--border); }
-  th { font-weight: 500; font-size: 12px; color: var(--ink-3); }
+  /* ── Tables（苹果风：轻量分割线，宽松行高） ── */
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { padding: var(--sp-4) var(--sp-5); text-align: left; border-bottom: 1px solid var(--border); }
+  th { font-weight: 500; font-size: 12px; color: var(--ink-4); letter-spacing: .02em; text-transform: uppercase; }
   tr:last-child td { border-bottom: none; }
-  tbody tr { transition: background .15s; height: 48px; }
+  tbody tr { transition: background .2s; height: 52px; }
   tbody tr:hover { background: var(--elevated); }
-  .table-wrap { border: 1px solid var(--border); border-radius: var(--r-lg); overflow: hidden; background: var(--surface); }
+  .table-wrap { border: none; border-radius: var(--r-xl); overflow: hidden; background: var(--bg-card); }
 
   /* ── Breadcrumb ── */
   .breadcrumb { color: var(--ink-4); margin-bottom: var(--sp-5); font-size: 13px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
@@ -176,11 +176,11 @@ export const CSS = `
   .member-chip { display: flex; align-items: center; gap: 6px; padding: var(--sp-2) var(--sp-3); background: var(--elevated); border: 1px solid var(--border); border-radius: 999px; font-size: 13px; transition: all .15s; }
   .member-chip:hover { border-color: var(--border-strong); background: var(--bg-hover); }
 
-  /* ── Upload Zone ── */
-  .upload-zone { border: 2px dashed var(--border-strong); border-radius: var(--r-xl); padding: var(--sp-8); text-align: center; cursor: pointer; transition: all .25s; margin: var(--sp-4) 0; }
+  /* ── Upload Zone（苹果风：虚线圆角，极简） ── */
+  .upload-zone { border: 2px dashed var(--border); border-radius: var(--r-xl); padding: var(--sp-10); text-align: center; cursor: pointer; transition: all .4s cubic-bezier(.25,.1,.25,1); margin: var(--sp-5) 0; background: var(--bg-card); }
   .upload-zone:hover, .upload-zone.drag-over { border-color: var(--brand); background: var(--brand-light); }
-  .upload-zone p { margin: var(--sp-2) 0; color: var(--ink-3); font-size: 14px; }
-  .upload-zone .upload-icon { font-size: 40px; margin-bottom: var(--sp-2); opacity: .6; }
+  .upload-zone p { margin: var(--sp-2) 0; color: var(--ink-4); font-size: 14px; letter-spacing: .008em; }
+  .upload-zone .upload-icon { font-size: 40px; margin-bottom: var(--sp-3); opacity: .5; }
 
   /* ── Annotation ── */
   .annotation { background: var(--warning-light); border: 1px solid rgba(245,158,11,.2); border-radius: var(--r); padding: var(--sp-4); margin: var(--sp-3) 0; }
@@ -301,36 +301,36 @@ export const CSS = `
   .hero-features .feature-label { font-size: 14px; color: var(--ink-3); font-weight: 500; letter-spacing: .008em; }
 
   /* ── 404 ── */
-  .not-found { text-align: center; padding: 100px var(--sp-6); }
-  .not-found .nf-code { font-size: 80px; font-weight: 800; color: var(--ink-4); line-height: 1; }
-  .not-found .nf-msg { font-size: 15px; color: var(--ink-3); margin: var(--sp-5) 0 var(--sp-8); }
+  .not-found { text-align: center; padding: 120px var(--sp-6); }
+  .not-found .nf-code { font-size: 96px; font-weight: 700; color: var(--ink-4); line-height: 1; letter-spacing: -.02em; }
+  .not-found .nf-msg { font-size: 17px; color: var(--ink-3); margin: var(--sp-6) 0 var(--sp-10); }
   .img-preview { text-align: center; padding: var(--sp-6); }
   .img-preview img { max-width: 100%; border-radius: var(--r-lg); box-shadow: var(--shadow-float); }
   details { margin: var(--sp-2) 0; }
   details > summary { cursor: pointer; font-size: 13px; color: var(--ink-3); padding: 10px 0; user-select: none; font-weight: 500; }
   details > summary:hover { color: var(--brand); }
 
-  /* ── Auth Pages（DM3: 左右分屏，左品牌渐变 + 右白色表单） ── */
+  /* ── Auth Pages（苹果风：左深色 + 右白色表单） ── */
   .auth-page { min-height: 100vh; display: flex; background: var(--bg); }
-  .auth-hero { flex: 1; background: linear-gradient(135deg, #7C5CFC, #6366F1, #3B82F6); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: var(--sp-12); color: #fff; position: relative; overflow: hidden; }
-  .auth-hero h1 { font-size: 36px; font-weight: 700; color: #fff; margin-bottom: var(--sp-4); text-align: center; }
-  .auth-hero-tags { display: flex; flex-wrap: wrap; gap: var(--sp-2); justify-content: center; margin-top: var(--sp-4); }
-  .auth-hero-tag { backdrop-filter: blur(8px); background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.2); border-radius: 999px; padding: var(--sp-2) var(--sp-4); font-size: 13px; font-weight: 500; color: #fff; }
-  .auth-form-side { width: 420px; min-width: 380px; display: flex; align-items: center; justify-content: center; padding: var(--sp-8); background: var(--surface); }
+  .auth-hero { flex: 1; background: #1D1D1F; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: var(--sp-12); color: #fff; position: relative; overflow: hidden; }
+  .auth-hero h1 { font-size: 48px; font-weight: 700; color: #F5F5F7; margin-bottom: var(--sp-4); text-align: center; letter-spacing: -.003em; }
+  .auth-hero-tags { display: flex; flex-wrap: wrap; gap: var(--sp-3); justify-content: center; margin-top: var(--sp-5); }
+  .auth-hero-tag { backdrop-filter: blur(12px); background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.12); border-radius: 999px; padding: var(--sp-2) var(--sp-5); font-size: 13px; font-weight: 400; color: rgba(255,255,255,.7); letter-spacing: .008em; }
+  .auth-form-side { width: 440px; min-width: 400px; display: flex; align-items: center; justify-content: center; padding: var(--sp-10); background: #FFFFFF; }
   .auth-card { width: 100%; max-width: 340px; text-align: center; }
   .auth-logo { font-size: 48px; margin-bottom: var(--sp-4); }
-  .auth-title { font-size: 20px; font-weight: 600; margin-bottom: 6px; color: var(--ink); }
-  .auth-subtitle { font-size: 13px; color: var(--ink-3); margin-bottom: var(--sp-6); }
-  .auth-form { text-align: left; display: flex; flex-direction: column; gap: var(--sp-4); }
+  .auth-title { font-size: 28px; font-weight: 700; margin-bottom: 8px; color: var(--ink); letter-spacing: -.02em; }
+  .auth-subtitle { font-size: 15px; color: var(--ink-3); margin-bottom: var(--sp-8); }
+  .auth-form { text-align: left; display: flex; flex-direction: column; gap: var(--sp-5); }
   .auth-form .form-group { display: flex; flex-direction: column; }
-  .auth-form label { font-size: 12px; font-weight: 500; color: var(--ink-3); margin-bottom: 6px; }
-  .auth-btn { width: 100%; height: 40px; border-radius: var(--r-sm); font-size: 15px; font-weight: 600; background: var(--brand); color: #fff; border: none; cursor: pointer; transition: all .2s; }
-  .auth-btn:hover { background: var(--brand-hover); }
+  .auth-form label { font-size: 13px; font-weight: 500; color: var(--ink-3); margin-bottom: 8px; letter-spacing: .008em; }
+  .auth-btn { width: 100%; height: 44px; border-radius: var(--r-pill); font-size: 15px; font-weight: 500; background: var(--brand); color: #fff; border: none; cursor: pointer; transition: all .3s cubic-bezier(.25,.1,.25,1); letter-spacing: -.01em; }
+  .auth-btn:hover { background: var(--brand-hover); transform: scale(1.01); }
   .auth-btn:active { transform: scale(.98); }
-  .auth-link { margin-top: var(--sp-5); font-size: 13px; color: var(--ink-3); text-align: center; }
-  .auth-link a { font-weight: 500; color: var(--brand); }
-  .auth-error { background: var(--danger-light); color: var(--danger); padding: var(--sp-3); border-radius: var(--r-sm); font-size: 13px; margin-bottom: var(--sp-3); }
-  .auth-success { background: var(--success-light); color: var(--success); padding: var(--sp-3); border-radius: var(--r-sm); font-size: 13px; margin-bottom: var(--sp-3); }
+  .auth-link { margin-top: var(--sp-6); font-size: 14px; color: var(--ink-3); text-align: center; }
+  .auth-link a { font-weight: 400; color: var(--brand); }
+  .auth-error { background: var(--danger-light); color: var(--danger); padding: var(--sp-3) var(--sp-4); border-radius: var(--r); font-size: 13px; margin-bottom: var(--sp-4); }
+  .auth-success { background: var(--success-light); color: var(--success); padding: var(--sp-3) var(--sp-4); border-radius: var(--r); font-size: 13px; margin-bottom: var(--sp-4); }
 
   /* ── Responsive ── */
   @media (max-width: 768px) {

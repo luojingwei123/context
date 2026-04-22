@@ -1225,12 +1225,19 @@ router.get("/s/:id/search", async (req, res) => {
     if (!space) return res.status(404).send(notFoundPage("Space not found"));
     if (!q) return res.redirect(`/s/${req.params.id}`);
 
-    const results = await storage.searchFiles(req.params.id, q);
-    const totalMatches = results.reduce((sum, r) => sum + r.matches.length, 0);
+    const rawResults = await storage.searchFiles(req.params.id, q);
+    // Group flat results by path
+    const grouped: Record<string, Array<{line: number; content: string}>> = {};
+    for (const r of rawResults) {
+      if (!grouped[r.path]) grouped[r.path] = [];
+      grouped[r.path].push({ line: r.line, content: r.content });
+    }
+    const results = Object.entries(grouped).map(([path, matches]) => ({ path, matches }));
+    const totalMatches = rawResults.length;
 
     const resultsHtml = results.map(r => {
       const matchLines = r.matches.map(m =>
-        `<li><small>L${m.line}</small> ${esc(m.text)}</li>`
+        `<li><small>L${m.line}</small> ${esc(m.content)}</li>`
       ).join("");
       return `<div class="search-result">
         <a href="/s/${req.params.id}/view/${r.path}" class="result-path">${esc(r.path)}</a><span class="result-count">${r.matches.length} 处匹配</span>
@@ -1535,48 +1542,44 @@ async function renderSpacePage(spaceId: string, space: any, user?: any): Promise
   }).join("");
 
   return page(space.name, user, `
-    <div class="breadcrumb"><a href="/s">首页</a> <span>/</span> <b>${esc(space.name)}</b></div>
+    <div class="breadcrumb"><a href="/s">← 首页</a> <span>/</span> <b>${esc(space.name)}</b></div>
 
-    <div class="card">
-      <div class="card-header">
-        <h1>${esc(space.name)}</h1>
-        <span class="badge badge-channel">${esc(space.channel)}</span>
+    <div style="margin-bottom:var(--sp-10);">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:var(--sp-3);">
+        <div>
+          <h1 style="font-size:40px;margin-bottom:var(--sp-2);">${esc(space.name)}</h1>
+          <p style="font-size:17px;color:var(--ink-3);margin:0;">
+            <span class="badge badge-channel">${esc(space.channel)}</span>
+            <span style="margin-left:12px;font-size:14px;color:var(--ink-4);">${spaceId} · ${new Date(space.createdAt).toLocaleDateString("zh-CN")}</span>
+          </p>
+        </div>
+        <div class="btn-group">
+          <a href="/s/${spaceId}/new" class="btn btn-primary">新建文件</a>
+          ${allAnnotations.length > 0 ? `<a href="/s/${spaceId}/annotations" class="btn btn-outline">批注 (${allAnnotations.length})</a>` : ""}
+        </div>
       </div>
-      <div class="meta">
-        <b>Space ID:</b> <code>${spaceId}</code> · <b>创建:</b> ${new Date(space.createdAt).toLocaleDateString("zh-CN")} · <b>创建者:</b> ${esc(space.createdBy)}
-      </div>
-
-      <form method="GET" action="/s/${spaceId}/search" style="margin-top:16px;display:flex;gap:8px;">
+      <form method="GET" action="/s/${spaceId}/search" style="margin-top:var(--sp-6);display:flex;gap:var(--sp-3);max-width:480px;">
         <input name="q" placeholder="搜索文件内容..." style="flex:1;">
-        <button type="submit" class="btn btn-primary">🔍 搜索</button>
+        <button type="submit" class="btn btn-primary">搜索</button>
       </form>
     </div>
 
-    <div class="card">
-      <div class="card-header">
-        <h2 style="margin:0;">📄 文件 (${files.length})</h2>
-        <div>
-          <a href="/s/${spaceId}/new" class="btn btn-primary">➕ 新建</a>
-          ${allAnnotations.length > 0 ? `<a href="/s/${spaceId}/annotations" class="btn">💬 批注 (${allAnnotations.length})</a>` : ""}
-        </div>
-      </div>
-      <div class="file-grid">${fileCards || '<p style="color:var(--text-muted);text-align:center;padding:20px;">暂无文件，点击上方"新建"或拖拽上传</p>'}</div>
+    <div style="margin-bottom:var(--sp-10);">
+      <h2 style="font-size:24px;margin-bottom:var(--sp-5);">文件</h2>
+      <div class="file-grid">${fileCards || '<div class="empty-state"><div class="empty-icon">📄</div><p>暂无文件</p></div>'}</div>
 
-      <!-- 上传区域 -->
       <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
         <div class="upload-icon">📁</div>
-        <p>拖拽文件到此处上传，或点击选择文件</p>
-        <p style="font-size:12px;color:var(--text-muted);">支持所有格式：文档、图片、代码文件等</p>
+        <p>拖拽文件到此处上传，或点击选择</p>
+        <p style="font-size:12px;color:var(--text-muted);">支持所有格式</p>
         <form id="uploadForm" method="POST" action="/s/${spaceId}/upload" enctype="multipart/form-data" style="display:none;">
           <input type="file" id="fileInput" name="file" multiple onchange="startUpload()">
         </form>
       </div>
-      <!-- Upload loading overlay -->
-      <div id="uploadOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:none;align-items:center;justify-content:center;">
-        <div style="background:var(--bg-card,#fff);border-radius:16px;padding:32px 48px;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,.2);">
-          <div class="spinner" style="width:40px;height:40px;border:4px solid #e5e7eb;border-top-color:#6366F1;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 16px;"></div>
-          <p style="font-size:16px;font-weight:500;margin:0;">上传中...</p>
-          <p style="font-size:13px;color:var(--text-muted,#666);margin:6px 0 0;">请稍候</p>
+      <div id="uploadOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:9999;align-items:center;justify-content:center;">
+        <div style="background:#fff;border-radius:22px;padding:40px 56px;text-align:center;box-shadow:0 12px 48px rgba(0,0,0,.15);">
+          <div class="spinner" style="width:36px;height:36px;border:3px solid #D2D2D7;border-top-color:#2997FF;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 16px;"></div>
+          <p style="font-size:17px;font-weight:500;margin:0;color:#1D1D1F;">上传中...</p>
         </div>
       </div>
       <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
@@ -1597,35 +1600,30 @@ async function renderSpacePage(spaceId: string, space: any, user?: any): Promise
       </script>
     </div>
 
-    <div class="card">
-      <div class="card-header"><h2 style="margin:0;">👥 成员</h2></div>
-      <div class="member-list">
-        ${creatorChip}
-        ${memberChips}
-      </div>
-      ${members.length === 0 ? '<p style="font-size:13px;color:var(--text-muted);margin-top:8px;">通过 Agent 工具 <code>context_add_member</code> 添加更多成员</p>' : ""}
-    </div>
-
-    <div class="card">
-      <div class="card-header"><h2 style="margin:0;">🔗 分享 & 集成</h2></div>
-      <div class="meta">
-        <b>AI Agent URL:</b> <code><script>document.write(location.origin)</script>/ctx/${spaceId}/SPACE.md</code><br>
-        <b>浏览器 URL:</b> <code><script>document.write(location.origin)</script>/s/${spaceId}</code>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-4);margin-bottom:var(--sp-10);">
+      <div class="card">
+        <h3 style="font-size:19px;margin-bottom:var(--sp-4);">成员</h3>
+        <div class="member-list">
+          ${creatorChip}
+          ${memberChips}
+        </div>
+        ${members.length === 0 ? '<p style="font-size:13px;color:var(--text-muted);margin-top:8px;">通过 <code>context_add_member</code> 添加</p>' : ""}
       </div>
 
-      <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:var(--radius);padding:14px;margin-top:12px;">
-        <h3 style="margin:0 0 8px;">🤖 让其他 Agent 加入</h3>
-        <pre style="margin:8px 0;background:#1E1E2E;color:#e2e8f0;padding:10px 14px;border-radius:6px;">clawhub install context-collab</pre>
-        <p style="font-size:12px;color:var(--text-secondary);margin:4px 0 0;">安装后 Agent 自动获取协作上下文。不装插件也能通过 URL 读取文件。</p>
-      </div>
-
-      <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
-        <h3 style="margin:0 0 8px;">🔔 Webhook 通知</h3>
-        <form method="POST" action="/s/${spaceId}/settings" style="display:flex;gap:8px;align-items:center;">
-          <input name="webhookUrl" value="${esc(space.webhookUrl || "")}" placeholder="Webhook URL（Discord / 飞书 / 钉钉）" style="flex:1;">
-          <button type="submit" class="btn">保存</button>
-        </form>
-        ${space.webhookUrl ? '<p style="font-size:12px;color:var(--success);margin:6px 0 0;">✅ 已配置</p>' : '<p style="font-size:12px;color:var(--text-muted);margin:6px 0 0;">⚠️ 未配置 — "发到群"不可用</p>'}
+      <div class="card">
+        <h3 style="font-size:19px;margin-bottom:var(--sp-4);">集成</h3>
+        <div style="font-size:13px;color:var(--ink-3);line-height:2;">
+          <b>Agent URL:</b> <code style="font-size:12px;"><script>document.write(location.origin)</script>/ctx/${spaceId}/</code><br>
+          <b>Web URL:</b> <code style="font-size:12px;"><script>document.write(location.origin)</script>/s/${spaceId}</code>
+        </div>
+        <pre style="margin:12px 0 0;background:#1D1D1F;color:#F5F5F7;padding:12px 16px;border-radius:var(--r);font-size:13px;">clawhub install context-collab</pre>
+        <div style="margin-top:var(--sp-4);padding-top:var(--sp-4);border-top:1px solid var(--border);">
+          <form method="POST" action="/s/${spaceId}/settings" style="display:flex;gap:var(--sp-3);align-items:center;">
+            <input name="webhookUrl" value="${esc(space.webhookUrl || "")}" placeholder="Webhook URL" style="flex:1;font-size:13px;">
+            <button type="submit" class="btn btn-small">保存</button>
+          </form>
+          ${space.webhookUrl ? '<p style="font-size:12px;color:var(--success);margin:6px 0 0;">✅ Webhook 已配置</p>' : '<p style="font-size:12px;color:var(--text-muted);margin:6px 0 0;">Webhook 未配置</p>'}
+        </div>
       </div>
     </div>
   `);
