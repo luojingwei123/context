@@ -759,7 +759,11 @@ router.use("/s", async (req: any, res, next) => {
 });
 
 /** Root redirect */
-router.get("/", (_req, res) => { res.redirect("/s"); });
+router.get("/", async (req, res) => {
+  const user = await getCurrentUser(req);
+  if (user) return res.redirect("/s");
+  res.redirect("/auth/login");
+});
 
 /** Home: my spaces list */
 router.get("/s", async (req: any, res) => {
