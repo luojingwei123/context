@@ -417,7 +417,7 @@ router.post("/spaces/:id/notify", async (req, res) => {
         if (origText) lines.push(`📎 原文：「${origText}」`);
         if (a.screenshotUrl) lines.push(`🖼️ 截图：${a.screenshotUrl}`);
         const fp = encodeURIComponent(a.filePath || filePath || "");
-        if (fp) lines.push(`🔗 查看：${baseUrl}/s/${req.params.id}/file/${fp}`);
+        if (fp) lines.push(`🔗 查看：${baseUrl}/s/${req.params.id}/view/${fp}`);
         lines.push(`━━━━━━━━━━━━`);
         return lines.join("\n");
       });
