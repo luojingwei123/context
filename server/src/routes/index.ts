@@ -17,10 +17,10 @@ import { getTemplate } from "../templates/index.js";
 // Prevent browsers from caching redirects (fixes ERR_TOO_MANY_REDIRECTS)
 const noCacheRedirects = (_req: any, res: any, next: any) => {
   const origRedirect = res.redirect.bind(res);
-  res.redirect = (statusOrUrl: any, url?: string) => {
+  res.redirect = (...args: any[]) => {
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
     res.setHeader("Pragma", "no-cache");
-    return origRedirect(statusOrUrl, url);
+    return origRedirect(...args);
   };
   next();
 };
