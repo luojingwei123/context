@@ -257,6 +257,8 @@ export const CSS = `
   .ann-card-actions { display: flex; gap: 4px; margin-top: 6px; }
   .ann-highlight-persistent { background: #FEF3C7; border-bottom: 2px solid var(--warning); border-radius: 2px; cursor: pointer; }
   .ann-input-card { background: var(--surface); border: 1px solid var(--brand); border-radius: var(--r-sm); padding: var(--sp-3); margin: var(--sp-2); }
+  .assign-label { display:flex;align-items:center;gap:8px;padding:8px;cursor:pointer;border-radius:6px;transition:background .15s; }
+  .assign-label:hover { background:#f3f4f6; }
   .ann-margin-bubble { position: relative; margin: 6px var(--sp-2); padding: var(--sp-2) var(--sp-3); background: var(--surface); border-left: 3px solid var(--warning); border-radius: 0 var(--r) var(--r) 0; font-size: 12px; line-height: 1.5; cursor: pointer; transition: all .15s; box-shadow: var(--shadow-rest); }
   .ann-margin-bubble:hover { background: #FDE68A; }
   .ann-margin-bubble .ann-bubble-author { font-weight: 600; color: var(--ink-3); font-size: 11px; }

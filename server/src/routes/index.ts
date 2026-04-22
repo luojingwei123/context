@@ -2462,7 +2462,7 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
         list.innerHTML = members.map(function(m) {
           var icon = m.type === 'agent' ? '🤖' : '👤';
           var role = m.role ? '<span style="font-size:10px;background:#e0e7ff;color:#4338ca;padding:1px 6px;border-radius:10px;margin-left:4px;">' + escH(m.role) + '</span>' : '';
-          return '<label style="display:flex;align-items:center;gap:8px;padding:8px;cursor:pointer;border-radius:6px;transition:background .15s;" onmouseover="this.style.background=\'#f3f4f6\'" onmouseout="this.style.background=\'transparent\'">' +
+          return '<label class="assign-label">' +
             '<input type="checkbox" class="assign-check" value="' + escH(m.name) + '" data-uid="' + escH(m.channelUserId || m.name) + '">' +
             '<span style="font-size:13px;">' + icon + ' ' + escH(m.name) + role + '</span>' +
           '</label>';
