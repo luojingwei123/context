@@ -1271,7 +1271,10 @@ router.get("/s/:id/history/*", async (req, res) => {
           <td>${esc(h.modifiedBy)}</td>
           <td>${new Date(h.savedAt).toLocaleString("zh-CN")}</td>
           <td>${h.size < 1024 ? h.size + 'B' : (h.size/1024).toFixed(1) + 'KB'}</td>
-          <td><a href="/s/${req.params.id}/version/${h.version}/${filePath}" class="btn-small">查看</a></td>
+          <td style="display:flex;gap:4px;">
+            <a href="/s/${req.params.id}/version/${h.version}/${filePath}" class="btn-small">查看</a>
+            ${currentFile && h.version !== currentFile.version ? `<form method="POST" action="/s/${req.params.id}/restore/${h.version}/${filePath}" style="display:inline;" onsubmit="return confirm('确定恢复到 v${h.version}？')"><button type="submit" class="btn-small" style="color:var(--brand);">🔄 恢复</button></form>` : '<span class="badge badge-channel" style="font-size:10px;">当前</span>'}
+          </td>
         </tr>
       `).join("")
       : "<tr><td colspan='5' style='text-align:center;color:var(--text-muted);padding:24px;'>暂无历史版本</td></tr>";
@@ -1306,6 +1309,28 @@ router.get("/s/:id/version/:version/*", async (req, res) => {
     if (!data) return res.status(404).send(notFoundPage(`Version v${version} not found`));
 
     const user = (req as any).ctxUser;
+    const currentFile = await storage.getFile(req.params.id, filePath);
+    const isCurrent = currentFile && currentFile.version === version;
+
+    // Render content properly based on file type
+    const isMdFile = filePath.match(/\.(md|markdown)$/i);
+    const isDocxHtmlFile = filePath.match(/\.docx$/i) && data.content && !data.content.startsWith("PK");
+    const isImageFile = filePath.match(/\.(png|jpg|jpeg|gif|svg|webp)$/i);
+    let versionContent = "";
+    if (isImageFile) {
+      versionContent = `<div class="img-preview"><p style="color:var(--ink-3);font-size:14px;">图片预览不支持历史版本</p></div>`;
+    } else if (isDocxHtmlFile) {
+      versionContent = `<div style="border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden;background:var(--surface);padding:40px 60px;line-height:1.8;font-size:15px;">${data.content}</div>`;
+    } else if (isMdFile) {
+      versionContent = `<div style="border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden;background:var(--surface);padding:24px;">${mdToHtml(data.content)}</div>`;
+    } else {
+      const vLines = data.content.split("\n");
+      const vNumbered = vLines.map((line: string, i: number) => {
+        return `<tr><td class="line-num">${i+1}</td><td class="line-content">${esc(line) || '&nbsp;'}</td></tr>`;
+      }).join("\n");
+      versionContent = `<div style="border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden;"><table class="code-table">${vNumbered}</table></div>`;
+    }
+
     res.type("text/html").send(page(`v${version} — ${filePath}`, user, `
       <div class="breadcrumb">
         <a href="/s/${req.params.id}">${esc(space.name)}</a> <span>/</span>
@@ -1315,24 +1340,39 @@ router.get("/s/:id/version/:version/*", async (req, res) => {
       <div class="card">
         <div class="card-header">
           <h2 style="margin:0;">📜 v${version}</h2>
-          <a href="/s/${req.params.id}/history/${filePath}" class="btn">← 返回历史</a>
+          <div class="btn-group">
+            ${!isCurrent ? `<form method="POST" action="/s/${req.params.id}/restore/${version}/${filePath}" style="display:inline;" onsubmit="return confirm('确定将文件恢复到 v${version}？当前内容将被覆盖。')"><button type="submit" class="btn btn-primary">🔄 恢复至该版本</button></form>` : '<span class="badge badge-channel">当前版本</span>'}
+            <a href="/s/${req.params.id}/history/${filePath}" class="btn">← 返回历史</a>
+          </div>
         </div>
         <div class="meta">
           <b>版本:</b> v${version} · <b>修改:</b> ${esc(data.modifiedBy)} · <b>时间:</b> ${new Date(data.savedAt).toLocaleString("zh-CN")} · <b>大小:</b> ${data.content.length < 1024 ? data.content.length + 'B' : (data.content.length/1024).toFixed(1) + 'KB'}
         </div>
       </div>
-      <div style="border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;">
-        <pre style="margin:0;border:none;border-radius:0;white-space:pre-wrap;">${esc(data.content)}</pre>
-      </div>
+      ${versionContent}
     `));
   } catch (err: any) { res.status(500).send(err.message); }
 });
 
 
+/** Restore file to a specific version */
+router.post("/s/:id/restore/:version/*", async (req, res) => {
+  try {
+    const filePath = (req.params as any)[0] || req.params["0"];
+    const version = parseInt(req.params.version);
+    const space = await storage.getSpace(req.params.id);
+    if (!space) return res.status(404).send(notFoundPage("Space not found"));
+    const data = await storage.getFileVersion(req.params.id, filePath, version);
+    if (!data) return res.status(404).send(notFoundPage(`Version v${version} not found`));
+    const user = (req as any).ctxUser;
+    const modifiedBy = (user && user.displayName) || "web-restore";
+    await storage.writeFile(req.params.id, filePath, data.content, modifiedBy);
+    res.redirect(`/s/${req.params.id}/view/${filePath}`);
+  } catch (err: any) { res.status(500).send(err.message); }
+});
+
 // ════════════════════════════════════════════════════════════════
 // HTML Rendering Helpers
-// ════════════════════════════════════════════════════════════════
-// HTML Rendering Helpers — Apple-inspired Design
 // ════════════════════════════════════════════════════════════════
 
 
@@ -1374,7 +1414,7 @@ async function renderSpacePage(spaceId: string, space: any, user?: any): Promise
   const fileCards = files.map((f: any) => {
     const size = f.size < 1024 ? `${f.size}B` : `${(f.size / 1024).toFixed(1)}KB`;
     const fileAnns = allAnnotations.filter((a: any) => a.filePath === f.path);
-    const annBadge = fileAnns.length > 0 ? `<span style="background:#f59e0b;color:#fff;padding:1px 6px;border-radius:10px;font-size:10px;">💬${fileAnns.length}</span>` : "";
+    const annBadge = fileAnns.length > 0 ? `<span class="badge" style="background:var(--warning-light);color:var(--warning);font-size:10px;padding:2px 8px;">💬 ${fileAnns.length}</span>` : "";
     return `<a href="/s/${spaceId}/view/${f.path}" class="file-card">
       <div class="icon">${fileIcon(f.path)}</div>
       <div class="name">${esc(f.path)} ${annBadge}</div>
