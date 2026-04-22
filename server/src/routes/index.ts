@@ -13,11 +13,23 @@ import crypto from "crypto";
 import multer from "multer";
 import * as storage from "../storage/index.js";
 import { getTemplate } from "../templates/index.js";
+
+// Prevent browsers from caching redirects (fixes ERR_TOO_MANY_REDIRECTS)
+const noCacheRedirects = (_req: any, res: any, next: any) => {
+  const origRedirect = res.redirect.bind(res);
+  res.redirect = (statusOrUrl: any, url?: string) => {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    return origRedirect(statusOrUrl, url);
+  };
+  next();
+};
 import * as menuRegistry from "../menu/index.js";
 import type { CreateSpaceRequest, SpaceLookupQuery } from "../types.js";
 import { CSS } from "../styles.js";
 
 const router = Router();
+router.use(noCacheRedirects);
 
 /** Get base URL from request (handles proxied environments) */
 function getBaseUrl(req: any): string {
@@ -45,7 +57,8 @@ function getSessionToken(req: any): string | null {
   return match ? match[1] : null;
 }
 function setSessionCookie(res: any, token: string) {
-  res.setHeader("Set-Cookie", `ctx_session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30 * 86400}`);
+  const isSecure = process.env.NODE_ENV === "production" || process.env.RENDER === "true";
+  res.setHeader("Set-Cookie", `ctx_session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30 * 86400}${isSecure ? "; Secure" : ""}`);
 }
 function clearSessionCookie(res: any) {
   res.setHeader("Set-Cookie", `ctx_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
