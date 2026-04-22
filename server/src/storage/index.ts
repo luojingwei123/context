@@ -28,6 +28,7 @@ export {
   removeMember,
   getAnnotations,
   addAnnotation,
+  updateAnnotationAssignee,
   resolveAnnotation,
   deleteAnnotation,
   addNotification,

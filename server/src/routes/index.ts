@@ -262,7 +262,8 @@ router.get("/spaces/:id/annotations", async (req, res) => {
   try {
     const filePath = req.query.file as string | undefined;
     const status = req.query.status as string | undefined;
-    const anns = await storage.getAnnotations(req.params.id, filePath, status);
+    const assignee = req.query.assignee as string | undefined;
+    const anns = await storage.getAnnotations(req.params.id, filePath, status, assignee);
     res.json({ annotations: anns });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
@@ -412,10 +413,17 @@ router.post("/spaces/:id/notify", async (req, res) => {
       });
       finalMessage = parts.join("\n\n");
       
-      // Add assignee line
+      // Add assignee line and update annotation records
       if (assignees && Array.isArray(assignees) && assignees.length > 0) {
         const mentions = assignees.map((a: any) => a.uid ? `@[${a.uid}:${a.name}]` : `@${a.name}`).join(" ");
         finalMessage += `\n\n👉 指派：${mentions} 请处理`;
+        // Write assignee back to each annotation record
+        const assigneeUid = assignees[0]?.uid || assignees[0]?.name || "";
+        if (assigneeUid) {
+          for (const ann of annotations) {
+            if (ann.id) await storage.updateAnnotationAssignee(req.params.id, ann.id, assigneeUid);
+          }
+        }
       } else {
         // No assignee specified — let the notify bot decide
         const notifyBotId2 = await storage.getSpaceNotifyBot(req.params.id);

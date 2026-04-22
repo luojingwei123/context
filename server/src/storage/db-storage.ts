@@ -373,7 +373,7 @@ export async function removeMember(spaceId: string, memberName: string): Promise
 // ═══════════════════════════════════════
 // Annotations
 
-export async function getAnnotations(spaceId: string, filePath?: string, status?: string): Promise<Annotation[]> {
+export async function getAnnotations(spaceId: string, filePath?: string, status?: string, assignee?: string): Promise<Annotation[]> {
   const db = getDb();
   let sql = "SELECT * FROM annotations WHERE space_id = ?";
   const args: any[] = [spaceId];
@@ -386,6 +386,10 @@ export async function getAnnotations(spaceId: string, filePath?: string, status?
     sql += " AND status = ?";
     args.push(status);
   }
+  if (assignee) {
+    sql += " AND assignee = ?";
+    args.push(assignee);
+  }
   sql += " ORDER BY created_at DESC";
 
   const result = await db.execute({ sql, args });
@@ -397,8 +401,8 @@ export async function addAnnotation(spaceId: string, ann: { filePath: string; li
   const id = nanoid(12);
   const now = new Date().toISOString();
   await db.execute({
-    sql: "INSERT INTO annotations (id, space_id, file_path, line, end_line, content, author, author_type, status, selected_text, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)",
-    args: [id, spaceId, ann.filePath, ann.line || 0, ann.endLine || 0, ann.content, ann.author, ann.authorType || "human", ann.selectedText || null, now, now],
+    sql: "INSERT INTO annotations (id, space_id, file_path, line, end_line, content, author, author_type, status, assignee, selected_text, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?)",
+    args: [id, spaceId, ann.filePath, ann.line || 0, ann.endLine || 0, ann.content, ann.author, ann.authorType || "human", ann.assignee || null, ann.selectedText || null, now, now],
   });
   return {
     id,
@@ -413,6 +417,16 @@ export async function addAnnotation(spaceId: string, ann: { filePath: string; li
     createdAt: now,
     updatedAt: now,
   };
+}
+
+export async function updateAnnotationAssignee(spaceId: string, annotationId: string, assignee: string): Promise<boolean> {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const result = await db.execute({
+    sql: "UPDATE annotations SET assignee = ?, updated_at = ? WHERE id = ? AND space_id = ?",
+    args: [assignee, now, annotationId, spaceId],
+  });
+  return (result.rowsAffected || 0) > 0;
 }
 
 export async function resolveAnnotation(spaceId: string, annotationId: string, resolvedBy: string): Promise<boolean> {
@@ -446,6 +460,7 @@ function rowToAnnotation(row: any): Annotation {
     authorType: row.author_type as "human" | "agent",
     status: row.status as "open" | "resolved",
     resolvedBy: row.resolved_by as string | undefined,
+    assignee: row.assignee as string | undefined,
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
   };

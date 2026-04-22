@@ -99,6 +99,8 @@ export interface Annotation {
   /** Who resolved it */
   resolvedBy?: string;
   resolvedAt?: string;
+  /** Who is assigned to handle this */
+  assignee?: string;
   createdAt: string;
   updatedAt: string;
 }
