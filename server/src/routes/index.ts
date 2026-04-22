@@ -81,7 +81,7 @@ router.get("/health", (_req, res) => {
   res.json({
     status: "ok",
     service: "context-server",
-    version: "1.19",
+    version: "1.20",
     pluginVersion: "1.0.8",
     updateCommand: "clawhub update context-collab --force",
   });
@@ -277,6 +277,16 @@ router.post("/spaces/:id/annotations", async (req, res) => {
       filePath, line: line || 0, endLine: endLine || 0, content, author, authorType: authorType || "human", assignee, selectedText,
     });
     res.status(201).json({ annotation: ann });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+/** Claim annotation (bot accepted, in progress) */
+router.put("/spaces/:id/annotations/:annId/claim", async (req, res) => {
+  try {
+    const { claimedBy } = req.body;
+    const ann = await storage.claimAnnotation(req.params.id, req.params.annId, claimedBy || "unknown");
+    if (!ann) return res.status(404).json({ error: "Annotation not found or not in open status" });
+    res.json({ annotation: ann });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1249,6 +1259,7 @@ router.get("/s/:id/annotations", async (req, res) => {
     if (!space) return res.status(404).send(notFoundPage("Space not found"));
     const annotations = await storage.getAnnotations(req.params.id);
     const open = annotations.filter(a => a.status === "open");
+    const claimed = annotations.filter(a => a.status === "claimed");
     const done = annotations.filter(a => a.status === "done");
     const resolved = annotations.filter(a => a.status === "resolved");
 
@@ -1273,6 +1284,22 @@ router.get("/s/:id/annotations", async (req, res) => {
         </div>
       </div>
     `).join("");
+
+    const claimedHtml = claimed.length > 0
+      ? `<h3 style="margin:16px 0 8px;">🔧 处理中 (${claimed.length})</h3>` +
+        claimed.map(a => `
+          <div class="annotation" style="border-left:3px solid #f59e0b;">
+            <div class="ann-header">
+              ${a.authorType === "human" ? "👤" : "🤖"} <b>${esc(a.author)}</b>
+              → <a href="/s/${req.params.id}/view/${a.filePath}">${esc(a.filePath)}</a>
+              ${a.line > 0 ? ` 第 ${a.line}${a.endLine > a.line ? `-${a.endLine}` : ''} 行` : ''}
+              · 🔧 <b>${esc(a.resolvedBy || "")}处理中</b>
+              ${a.assignee ? ` · 👤 指派给 ${esc(a.assignee)}` : ''}
+            </div>
+            <div class="ann-content">${esc(a.content)}</div>
+          </div>
+        `).join("")
+      : "";
 
     const doneHtml = done.length > 0
       ? `<h3 style="margin:16px 0 8px;">✅ 已完成，待验收 (${done.length})</h3>` +
@@ -1314,7 +1341,8 @@ router.get("/s/:id/annotations", async (req, res) => {
       <div class="breadcrumb"><a href="/s/${req.params.id}">← ${esc(space.name)}</a> <span>/</span> 批注清单</div>
       <div class="card">
         <div class="card-header"><h2 style="margin:0;">💬 批注清单</h2><span class="badge badge-channel">待处理 ${open.length} · 已完成 ${done.length} · 已归档 ${resolved.length}</span></div>
-        ${openHtml || (done.length === 0 ? '<div class="empty-state"><div class="empty-icon">🎉</div><p>暂无待处理批注</p></div>' : '')}
+        ${openHtml || (claimed.length === 0 && done.length === 0 ? '<div class="empty-state"><div class="empty-icon">🎉</div><p>暂无待处理批注</p></div>' : '')}
+        ${claimedHtml}
         ${doneHtml}
         ${resolvedHtml}
       </div>
@@ -2574,7 +2602,11 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ annotations: annotations, filePath: FILE_PATH, assignees: assignees })
         }).then(function(r) { return r.json(); }).then(function(d) {
-          if (d.success && d.pushed) showToast('📢 已发送 ' + anns.length + ' 条批注到群');
+          if (d.success && d.pushed) {
+            var assigneeNames = assignees.map(function(a) { return a.name; }).join(', ');
+            if (assigneeNames) showToast('📢 已发送 ' + anns.length + ' 条批注到群\\n✅ 已指派给 ' + assigneeNames + '，bot 下次被触发时将自动接收');
+            else showToast('📢 已发送 ' + anns.length + ' 条批注到群');
+          }
           else if (d.success) showToast('📢 已保存，等待推送');
           else showToast('❌ 发送失败: ' + (d.error || ''));
         }).catch(function() { showToast('❌ 发送失败'); });

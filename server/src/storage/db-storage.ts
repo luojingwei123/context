@@ -383,8 +383,15 @@ export async function getAnnotations(spaceId: string, filePath?: string, status?
     args.push(filePath);
   }
   if (status && status !== "all") {
-    sql += " AND status = ?";
-    args.push(status);
+    // Support comma-separated statuses like "open,claimed,done"
+    const statuses = status.split(",").map(s => s.trim()).filter(Boolean);
+    if (statuses.length === 1) {
+      sql += " AND status = ?";
+      args.push(statuses[0]);
+    } else if (statuses.length > 1) {
+      sql += ` AND status IN (${statuses.map(() => "?").join(",")})`;
+      args.push(...statuses);
+    }
   }
   if (assignee) {
     sql += " AND assignee = ?";
@@ -393,7 +400,26 @@ export async function getAnnotations(spaceId: string, filePath?: string, status?
   sql += " ORDER BY created_at DESC";
 
   const result = await db.execute({ sql, args });
-  return result.rows.map(rowToAnnotation);
+  let annotations = result.rows.map(rowToAnnotation);
+
+  // Auto-rollback: claimed annotations older than 30 minutes → treat as open
+  const CLAIM_TIMEOUT_MS = 30 * 60 * 1000;
+  const now = Date.now();
+  for (const ann of annotations) {
+    if (ann.status === "claimed" && ann.updatedAt) {
+      const elapsed = now - new Date(ann.updatedAt).getTime();
+      if (elapsed > CLAIM_TIMEOUT_MS) {
+        // Roll back to open in DB
+        await db.execute({
+          sql: "UPDATE annotations SET status = 'open', updated_at = ? WHERE id = ? AND space_id = ? AND status = 'claimed'",
+          args: [new Date().toISOString(), ann.id, spaceId],
+        });
+        ann.status = "open";
+      }
+    }
+  }
+
+  return annotations;
 }
 
 export async function addAnnotation(spaceId: string, ann: { filePath: string; line: number; endLine?: number; content: string; author: string; authorType?: string; assignee?: string; selectedText?: string }): Promise<Annotation> {
@@ -430,11 +456,21 @@ export async function updateAnnotationAssignee(spaceId: string, annotationId: st
   return (result.rowsAffected || 0) > 0;
 }
 
+export async function claimAnnotation(spaceId: string, annotationId: string, claimedBy: string): Promise<boolean> {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const result = await db.execute({
+    sql: "UPDATE annotations SET status = 'claimed', resolved_by = ?, updated_at = ? WHERE id = ? AND space_id = ? AND status = 'open'",
+    args: [claimedBy, now, annotationId, spaceId],
+  });
+  return (result.rowsAffected || 0) > 0;
+}
+
 export async function completeAnnotation(spaceId: string, annotationId: string, completedBy: string): Promise<boolean> {
   const db = getDb();
   const now = new Date().toISOString();
   const result = await db.execute({
-    sql: "UPDATE annotations SET status = 'done', resolved_by = ?, updated_at = ? WHERE id = ? AND space_id = ?",
+    sql: "UPDATE annotations SET status = 'done', resolved_by = ?, updated_at = ? WHERE id = ? AND space_id = ? AND status IN ('open', 'claimed')",
     args: [completedBy, now, annotationId, spaceId],
   });
   return (result.rowsAffected || 0) > 0;
@@ -469,7 +505,7 @@ function rowToAnnotation(row: any): Annotation {
     content: row.content as string,
     author: row.author as string,
     authorType: row.author_type as "human" | "agent",
-    status: row.status as "open" | "done" | "resolved",
+    status: row.status as "open" | "claimed" | "done" | "resolved",
     resolvedBy: row.resolved_by as string | undefined,
     assignee: row.assignee as string | undefined,
     createdAt: row.created_at as string,
