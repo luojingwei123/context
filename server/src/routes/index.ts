@@ -416,7 +416,7 @@ router.post("/spaces/:id/notify", async (req, res) => {
       // Add assignee line and update annotation records
       if (assignees && Array.isArray(assignees) && assignees.length > 0) {
         const mentions = assignees.map((a: any) => a.uid ? `@[${a.uid}:${a.name}]` : `@${a.name}`).join(" ");
-        finalMessage += `\n\n👉 指派：${mentions} 请处理`;
+        finalMessage += `\n\n👉 指派：${mentions} 请处理\n💡 收到任务后请先回复"收到，开始处理"，完成后在群里汇报结果`;
         // Write assignee back to each annotation record
         const assigneeUid = assignees[0]?.uid || assignees[0]?.name || "";
         if (assigneeUid) {
