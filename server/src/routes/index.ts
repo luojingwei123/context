@@ -414,14 +414,14 @@ router.post("/spaces/:id/notify", async (req, res) => {
       
       // Add assignee line
       if (assignees && Array.isArray(assignees) && assignees.length > 0) {
-        const mentions = assignees.map((a: any) => `@${a.name}`).join(" ");
+        const mentions = assignees.map((a: any) => a.uid ? `@[${a.uid}:${a.name}]` : `@${a.name}`).join(" ");
         finalMessage += `\n\n👉 指派：${mentions} 请处理`;
       } else {
         // No assignee specified — let the notify bot decide
         const notifyBotId2 = await storage.getSpaceNotifyBot(req.params.id);
         if (notifyBotId2) {
           const bot2 = await storage.getBot(notifyBotId2);
-          if (bot2) finalMessage += `\n\n👉 指派：@${bot2.name} 请分配`;
+          if (bot2) finalMessage += `\n\n👉 指派：@[${bot2.channelUserId || bot2.name}:${bot2.name}] 请分配`;
         }
       }
     }
