@@ -758,6 +758,9 @@ router.use("/s", async (req: any, res, next) => {
   next();
 });
 
+/** Root redirect */
+router.get("/", (_req, res) => { res.redirect("/s"); });
+
 /** Home: my spaces list */
 router.get("/s", async (req: any, res) => {
   try {
@@ -1366,7 +1369,10 @@ router.post("/s/:id/restore/:version/*", async (req, res) => {
     if (!data) return res.status(404).send(notFoundPage(`Version v${version} not found`));
     const user = (req as any).ctxUser;
     const modifiedBy = (user && user.displayName) || "web-restore";
-    await storage.writeFile(req.params.id, filePath, data.content, modifiedBy);
+    // Preserve mimeType from current file (critical for docx rendered as HTML)
+    const currentFile = await storage.getFile(req.params.id, filePath);
+    const mimeType = currentFile?.mimeType || undefined;
+    await storage.writeFile(req.params.id, filePath, data.content, modifiedBy, mimeType);
     res.redirect(`/s/${req.params.id}/view/${filePath}`);
   } catch (err: any) { res.status(500).send(err.message); }
 });
@@ -1423,10 +1429,14 @@ async function renderSpacePage(spaceId: string, space: any, user?: any): Promise
   }).join("");
 
   // Members: show creator + registered members
-  const creatorChip = `<div class="member-chip"><span class="badge badge-creator">创建者</span> ${esc(space.createdBy)}</div>`;
+  // If creator is also in members list, skip the separate creator chip to avoid duplication
+  const creatorInMembers = members.some((m: any) => m.name === space.createdBy || m.channelUserId === space.createdBy);
+  const creatorChip = creatorInMembers ? "" : `<div class="member-chip"><span class="badge badge-creator">创建者</span> ${esc(space.createdBy)}</div>`;
   const memberChips = members.map((m: any) => {
+    const isCreator = m.name === space.createdBy || m.channelUserId === space.createdBy;
     const badge = m.type === "agent" ? '<span class="badge badge-agent">🤖 Agent</span>' : '<span class="badge badge-human">👤 人类</span>';
-    return `<div class="member-chip">${badge} ${esc(m.name)}${m.role ? ` · ${esc(m.role)}` : ""}</div>`;
+    const creatorTag = isCreator ? ' <span class="badge badge-creator">创建者</span>' : '';
+    return `<div class="member-chip">${badge} ${esc(m.name)}${m.role ? ` · ${esc(m.role)}` : ""}${creatorTag}</div>`;
   }).join("");
 
   return page(space.name, user, `
