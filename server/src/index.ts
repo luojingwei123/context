@@ -64,14 +64,11 @@ function apiAuth(req: express.Request, res: express.Response, next: express.Next
   res.status(401).json({ error: "Unauthorized. Provide token via X-Context-Token header, Authorization: Bearer, or ?token= query." });
 }
 
-// Web UI routes — no auth required (browser session)
-// In production, add session/cookie auth here
-app.use("/s", routes);
-
-// API routes — token auth
+// All routes handled by the router (auth guard is inside router for /s/*)
+// API routes get token auth middleware
 app.use("/api", apiAuth, routes);
 
-// /ctx routes — public (content + install hint for non-plugin agents, or rendered page for browsers)
+// Everything else (/, /s/*, /auth/*, /ctx/*) — router handles internally
 app.use("/", routes);
 
 // Initialize database then start server
