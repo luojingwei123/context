@@ -1323,13 +1323,14 @@ router.get("/s/:id/annotations", async (req, res) => {
       : "";
 
     const resolvedHtml = resolved.length > 0
-      ? `<details><summary>已归档 (${resolved.length})</summary>` +
+      ? `<details open><summary style="cursor:pointer;font-weight:600;padding:8px 0;color:var(--text-secondary);">📦 已归档 (${resolved.length})</summary>` +
         resolved.map(a => `
           <div class="annotation resolved">
             <div class="ann-header">
               ${a.authorType === "human" ? "👤" : "🤖"} <b>${esc(a.author)}</b>
               → <a href="/s/${req.params.id}/view/${a.filePath}">${esc(a.filePath)}</a>
-              · 📦 ${esc(a.resolvedBy || "")}
+              · 📦 ${esc(a.resolvedBy || "")}归档
+              ${a.updatedAt ? ` · ${new Date(a.updatedAt).toLocaleDateString("zh-CN")}` : ""}
             </div>
             <div class="ann-content">${esc(a.content)}</div>
           </div>
