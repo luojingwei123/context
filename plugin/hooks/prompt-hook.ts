@@ -18,9 +18,9 @@ function truncate(text: string, max: number): string {
 }
 
 /**
- * Fetch the protocol files for a given channel + groupId.
+ * Fetch the protocol files + members for a given channel + groupId.
  */
-export async function fetchProtocol(channel: string, groupId: string): Promise<{ space: string; team: string; task: string } | null> {
+export async function fetchProtocol(channel: string, groupId: string): Promise<{ space: string; team: string; task: string; members?: any[]; spaceId?: string; spaceName?: string } | null> {
   try {
     const lookupRes = await fetch(
       `${CTX_BASE}/api/spaces/lookup?channel=${encodeURIComponent(channel)}&groupId=${encodeURIComponent(groupId)}`,
@@ -30,12 +30,18 @@ export async function fetchProtocol(channel: string, groupId: string): Promise<{
     const { space } = await lookupRes.json() as any;
     if (!space?.id) return null;
 
-    const protocolRes = await fetch(
-      `${CTX_BASE}/api/spaces/${space.id}/protocol`,
-      { signal: AbortSignal.timeout(5000) }
-    );
+    const [protocolRes, membersRes] = await Promise.all([
+      fetch(`${CTX_BASE}/api/spaces/${space.id}/protocol`, { signal: AbortSignal.timeout(5000) }),
+      fetch(`${CTX_BASE}/api/spaces/${space.id}/members`, { signal: AbortSignal.timeout(5000) }).catch(() => null),
+    ]);
     if (!protocolRes.ok) return null;
-    return await protocolRes.json() as any;
+    const protocol = await protocolRes.json() as any;
+    let members: any[] = [];
+    if (membersRes?.ok) {
+      const mData = await membersRes.json() as any;
+      members = mData.members || mData || [];
+    }
+    return { ...protocol, members, spaceId: space.id, spaceName: space.name };
   } catch {
     return null;
   }
@@ -46,7 +52,7 @@ export async function fetchProtocol(channel: string, groupId: string): Promise<{
  * This gets appended to the agent's system prompt via appendSystemContext.
  * Each file is truncated to MAX_FILE_CHARS to prevent token overflow.
  */
-export function buildPromptInjection(protocol: { space: string; team: string; task: string }, spaceId: string): string {
+export function buildPromptInjection(protocol: { space: string; team: string; task: string; members?: any[]; spaceId?: string; spaceName?: string }, spaceId: string): string {
   const sections: string[] = [];
 
   sections.push(`## Context Space — 共享协作协议`);
@@ -71,6 +77,18 @@ export function buildPromptInjection(protocol: { space: string; team: string; ta
   if (protocol.task) {
     sections.push(`### TASK.md（当前任务）`);
     sections.push(truncate(protocol.task, MAX_FILE_CHARS));
+    sections.push(``);
+  }
+
+  // Inject live member registry
+  if (protocol.members && protocol.members.length > 0) {
+    sections.push(`### 成员注册表（来自 API）`);
+    sections.push(`| 名称 | 类型 | 角色 | UID |`);
+    sections.push(`|------|------|------|-----|`);
+    for (const m of protocol.members) {
+      const icon = m.type === "agent" ? "🤖" : "👤";
+      sections.push(`| ${m.name} | ${icon} ${m.type} | ${m.role || "-"} | ${m.channelUserId || "-"} |`);
+    }
     sections.push(``);
   }
 
