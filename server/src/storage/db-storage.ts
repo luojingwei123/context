@@ -429,6 +429,16 @@ export async function updateAnnotationAssignee(spaceId: string, annotationId: st
   return (result.rowsAffected || 0) > 0;
 }
 
+export async function completeAnnotation(spaceId: string, annotationId: string, completedBy: string): Promise<boolean> {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const result = await db.execute({
+    sql: "UPDATE annotations SET status = 'done', resolved_by = ?, updated_at = ? WHERE id = ? AND space_id = ?",
+    args: [completedBy, now, annotationId, spaceId],
+  });
+  return (result.rowsAffected || 0) > 0;
+}
+
 export async function resolveAnnotation(spaceId: string, annotationId: string, resolvedBy: string): Promise<boolean> {
   const db = getDb();
   const now = new Date().toISOString();
@@ -458,7 +468,7 @@ function rowToAnnotation(row: any): Annotation {
     content: row.content as string,
     author: row.author as string,
     authorType: row.author_type as "human" | "agent",
-    status: row.status as "open" | "resolved",
+    status: row.status as "open" | "done" | "resolved",
     resolvedBy: row.resolved_by as string | undefined,
     assignee: row.assignee as string | undefined,
     createdAt: row.created_at as string,

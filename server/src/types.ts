@@ -94,8 +94,8 @@ export interface Annotation {
   author: string;
   /** Author type */
   authorType: "human" | "agent";
-  /** Status: open = needs attention, resolved = done */
-  status: "open" | "resolved";
+  /** Status: open = needs attention, done = bot completed (pending human review), resolved = human archived */
+  status: "open" | "done" | "resolved";
   /** Who resolved it */
   resolvedBy?: string;
   resolvedAt?: string;

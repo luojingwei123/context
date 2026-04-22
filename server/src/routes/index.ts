@@ -280,7 +280,17 @@ router.post("/spaces/:id/annotations", async (req, res) => {
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-/** Resolve annotation */
+/** Mark annotation as done (bot completed, pending human review) */
+router.put("/spaces/:id/annotations/:annId/done", async (req, res) => {
+  try {
+    const { completedBy } = req.body;
+    const ann = await storage.completeAnnotation(req.params.id, req.params.annId, completedBy || "unknown");
+    if (!ann) return res.status(404).json({ error: "Annotation not found" });
+    res.json({ annotation: ann });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+/** Resolve annotation (human archive) */
 router.put("/spaces/:id/annotations/:annId/resolve", async (req, res) => {
   try {
     const { resolvedBy } = req.body;
@@ -1239,6 +1249,7 @@ router.get("/s/:id/annotations", async (req, res) => {
     if (!space) return res.status(404).send(notFoundPage("Space not found"));
     const annotations = await storage.getAnnotations(req.params.id);
     const open = annotations.filter(a => a.status === "open");
+    const done = annotations.filter(a => a.status === "done");
     const resolved = annotations.filter(a => a.status === "resolved");
 
     const openHtml = open.map(a => `
@@ -1263,14 +1274,35 @@ router.get("/s/:id/annotations", async (req, res) => {
       </div>
     `).join("");
 
+    const doneHtml = done.length > 0
+      ? `<h3 style="margin:16px 0 8px;">✅ 已完成，待验收 (${done.length})</h3>` +
+        done.map(a => `
+          <div class="annotation" style="border-left:3px solid #4caf50;">
+            <div class="ann-header">
+              ${a.authorType === "human" ? "👤" : "🤖"} <b>${esc(a.author)}</b>
+              → <a href="/s/${req.params.id}/view/${a.filePath}">${esc(a.filePath)}</a>
+              ${a.line > 0 ? ` 第 ${a.line}${a.endLine > a.line ? `-${a.endLine}` : ''} 行` : ''}
+              · ✅ <b>${esc(a.resolvedBy || "")}已完成</b>
+            </div>
+            <div class="ann-content">${esc(a.content)}</div>
+            <div class="ann-actions">
+              <form method="POST" action="/s/${req.params.id}/resolve-annotation/${a.id}" style="display:inline;">
+                <input type="hidden" name="filePath" value="${esc(a.filePath)}">
+                <button type="submit" class="btn-small" style="background:#4caf50;color:#fff;">✅ 验收归档</button>
+              </form>
+            </div>
+          </div>
+        `).join("")
+      : "";
+
     const resolvedHtml = resolved.length > 0
-      ? `<details><summary>已处理 (${resolved.length})</summary>` +
+      ? `<details><summary>已归档 (${resolved.length})</summary>` +
         resolved.map(a => `
           <div class="annotation resolved">
             <div class="ann-header">
               ${a.authorType === "human" ? "👤" : "🤖"} <b>${esc(a.author)}</b>
               → <a href="/s/${req.params.id}/view/${a.filePath}">${esc(a.filePath)}</a>
-              · ✅ ${esc(a.resolvedBy || "")}
+              · 📦 ${esc(a.resolvedBy || "")}
             </div>
             <div class="ann-content">${esc(a.content)}</div>
           </div>
@@ -1281,8 +1313,9 @@ router.get("/s/:id/annotations", async (req, res) => {
     res.type("text/html").send(page("批注清单", user, `
       <div class="breadcrumb"><a href="/s/${req.params.id}">← ${esc(space.name)}</a> <span>/</span> 批注清单</div>
       <div class="card">
-        <div class="card-header"><h2 style="margin:0;">💬 批注清单</h2><span class="badge badge-channel">待处理 ${open.length} · 已处理 ${resolved.length}</span></div>
-        ${openHtml || '<div class="empty-state"><div class="empty-icon">🎉</div><p>暂无待处理批注</p></div>'}
+        <div class="card-header"><h2 style="margin:0;">💬 批注清单</h2><span class="badge badge-channel">待处理 ${open.length} · 已完成 ${done.length} · 已归档 ${resolved.length}</span></div>
+        ${openHtml || (done.length === 0 ? '<div class="empty-state"><div class="empty-icon">🎉</div><p>暂无待处理批注</p></div>' : '')}
+        ${doneHtml}
         ${resolvedHtml}
       </div>
     `));

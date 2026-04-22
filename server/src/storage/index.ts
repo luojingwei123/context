@@ -29,6 +29,7 @@ export {
   getAnnotations,
   addAnnotation,
   updateAnnotationAssignee,
+  completeAnnotation,
   resolveAnnotation,
   deleteAnnotation,
   addNotification,
