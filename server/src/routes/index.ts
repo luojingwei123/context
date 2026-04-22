@@ -1420,10 +1420,10 @@ async function renderSpacePage(spaceId: string, space: any, user?: any): Promise
   const fileCards = files.map((f: any) => {
     const size = f.size < 1024 ? `${f.size}B` : `${(f.size / 1024).toFixed(1)}KB`;
     const fileAnns = allAnnotations.filter((a: any) => a.filePath === f.path);
-    const annBadge = fileAnns.length > 0 ? `<span class="badge" style="background:var(--warning-light);color:var(--warning);font-size:10px;padding:2px 8px;">💬 ${fileAnns.length}</span>` : "";
+    const annBadge = fileAnns.length > 0 ? `<span class="ann-pill">💬${fileAnns.length}</span>` : "";
     return `<a href="/s/${spaceId}/view/${f.path}" class="file-card">
       <div class="icon">${fileIcon(f.path)}</div>
-      <div class="name">${esc(f.path)} ${annBadge}</div>
+      <div class="name"><span>${esc(f.path)}</span> ${annBadge}</div>
       <div class="file-meta">${size} · v${f.version} · ${f.modifiedBy || "unknown"}</div>
     </a>`;
   }).join("");

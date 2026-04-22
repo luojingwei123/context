@@ -163,8 +163,9 @@ export const CSS = `
   .file-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-2); transition: all .25s; text-decoration: none; color: var(--ink); position: relative; box-shadow: var(--shadow-rest); }
   .file-card:hover { border-color: var(--brand); box-shadow: var(--shadow-float); text-decoration: none; transform: translateY(-1px); color: var(--ink); }
   .file-card .icon { font-size: 32px; }
-  .file-card .name { font-size: 15px; font-weight: 600; word-break: break-all; display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; }
-  .file-card .name .badge { flex-shrink: 0; white-space: nowrap; }
+  .file-card .name { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; overflow: hidden; }
+  .file-card .name span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-card .name .ann-pill { flex-shrink: 0; white-space: nowrap; display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 10px; font-size: 11px; font-weight: 500; background: #FEF3C7; color: #92400E; }
   .file-card .file-meta { font-size: 12px; color: var(--ink-4); }
 
   /* ── Members ── */
