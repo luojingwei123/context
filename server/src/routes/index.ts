@@ -763,11 +763,17 @@ router.get("/auth/me", async (req, res) => {
 // /s/* — Web UI（需要登录）
 // ════════════════════════════════════════════════════════════════
 
-/** Auth guard: all /s/* routes require login */
-router.use("/s", async (req: any, res, next) => {
+/** Auth guard: all /s and /s/* routes require login */
+router.all("/s", async (req: any, res, next) => {
   const user = await getCurrentUser(req);
   if (!user) return res.redirect("/auth/login");
-  req.ctxUser = user; // attach to request for downstream handlers
+  req.ctxUser = user;
+  next();
+});
+router.use("/s/", async (req: any, res, next) => {
+  const user = await getCurrentUser(req);
+  if (!user) return res.redirect("/auth/login");
+  req.ctxUser = user;
   next();
 });
 
