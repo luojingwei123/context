@@ -2503,6 +2503,7 @@ function renderFilePage(space: any, file: any, spaceId: string, filePath: string
       var pendingScreenshots = 0;
       var annotations = anns.map(function(a) {
         return {
+          id: a.id || '',
           author: a.author || 'unknown',
           content: a.content || '',
           selectedText: (a.selectedText || '').substring(0, 300),
