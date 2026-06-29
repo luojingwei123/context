@@ -68,6 +68,14 @@ function apiAuth(req: express.Request, res: express.Response, next: express.Next
 // API routes get token auth middleware
 app.use("/api", apiAuth, routes);
 
+// 背题宝 — 静态题库网页（无需鉴权）
+app.use("/beititao", express.static(path.join(process.cwd(), "public/beititao"), {
+  maxAge: 0,
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.json')) res.setHeader('Cache-Control', 'public, max-age=3600');
+  }
+}));
+
 // Everything else (/, /s/*, /auth/*, /ctx/*) — router handles internally
 app.use("/", routes);
 

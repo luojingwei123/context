@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#1e88e5">
+<title>背题宝</title>
+<style>
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", Arial, sans-serif; background: #f5f7fa; color: #222; -webkit-font-smoothing: antialiased; }
+body { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+
+/* 首页 */
+.home { padding: 24px 20px 100px; max-width: 600px; margin: 0 auto; }
+.home h1 { font-size: 26px; margin: 18px 0 8px; text-align: center; color: #1e88e5; }
+.home .subtitle { text-align: center; color: #888; font-size: 14px; margin-bottom: 28px; }
+.bank-card { background: #fff; border-radius: 14px; padding: 18px; margin-bottom: 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); cursor: pointer; transition: transform 0.12s; }
+.bank-card:active { transform: scale(0.98); }
+.bank-card h2 { margin: 0 0 8px; font-size: 17px; color: #222; }
+.bank-card .stats { font-size: 13px; color: #888; margin-bottom: 10px; }
+.bank-card .progress-bar { background: #eee; border-radius: 4px; height: 6px; overflow: hidden; }
+.bank-card .progress-bar > div { background: linear-gradient(90deg, #4caf50, #81c784); height: 100%; transition: width 0.3s; }
+.bank-card .progress-text { font-size: 12px; color: #4caf50; margin-top: 6px; }
+.bank-card .actions { display: flex; gap: 8px; margin-top: 12px; }
+.bank-card button { flex: 1; padding: 10px; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; }
+.btn-primary { background: #1e88e5; color: #fff; }
+.btn-secondary { background: #f0f0f0; color: #555; }
+.btn-warning { background: #ff9800; color: #fff; }
+
+.tip { background: #fff8e1; border-left: 3px solid #ffb300; padding: 12px 14px; border-radius: 6px; font-size: 13px; color: #6d4c00; margin-bottom: 16px; line-height: 1.5; }
+
+/* 答题页 */
+.quiz { padding: 0; max-width: 700px; margin: 0 auto; }
+.topbar { position: sticky; top: 0; background: rgba(255,255,255,0.95); backdrop-filter: blur(8px); border-bottom: 1px solid #e0e0e0; padding: 12px 16px; display: flex; align-items: center; gap: 10px; z-index: 10; padding-top: calc(12px + env(safe-area-inset-top)); }
+.topbar .back { background: none; border: none; font-size: 22px; color: #1e88e5; padding: 4px 8px; cursor: pointer; }
+.topbar .title { flex: 1; font-size: 14px; color: #555; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.topbar .star-btn { background: none; border: none; font-size: 22px; padding: 4px 8px; cursor: pointer; color: #ccc; }
+.topbar .star-btn.active { color: #ffb300; }
+.topbar .menu-btn { background: none; border: none; font-size: 20px; padding: 4px 8px; cursor: pointer; color: #555; }
+
+.progress-info { padding: 8px 16px; background: #fafafa; font-size: 12px; color: #888; display: flex; justify-content: space-between; }
+
+.qcard { padding: 20px 18px 100px; }
+.qtype { display: inline-block; background: #e3f2fd; color: #1565c0; font-size: 12px; padding: 3px 10px; border-radius: 10px; margin-bottom: 12px; font-weight: 600; }
+.qtype.multi { background: #fff3e0; color: #e65100; }
+.qtype.judge { background: #e8f5e9; color: #2e7d32; }
+.qstem { font-size: 17px; line-height: 1.6; margin-bottom: 18px; color: #222; }
+.qnum { color: #888; font-weight: normal; font-size: 14px; margin-right: 6px; }
+
+.opt { background: #fff; border: 2px solid #e0e0e0; border-radius: 10px; padding: 14px; margin-bottom: 10px; display: flex; align-items: flex-start; gap: 10px; line-height: 1.5; }
+.opt.correct { background: #e8f5e9; border-color: #4caf50; color: #1b5e20; font-weight: 600; }
+.opt-label { flex-shrink: 0; width: 26px; height: 26px; border-radius: 50%; background: #eee; color: #555; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; }
+.opt.correct .opt-label { background: #4caf50; color: #fff; }
+.opt-text { flex: 1; font-size: 15px; }
+.opt-check { color: #4caf50; font-size: 18px; }
+.opt.correct .opt-check::before { content: "✓"; }
+
+.explain { background: #fff8e1; border-left: 3px solid #ffb300; padding: 12px; border-radius: 6px; margin-top: 14px; font-size: 13px; color: #6d4c00; line-height: 1.6; }
+.explain .label { font-weight: 700; margin-right: 4px; }
+
+/* 底部导航 */
+.navbar { position: fixed; bottom: 0; left: 0; right: 0; background: #fff; border-top: 1px solid #e0e0e0; padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); display: flex; align-items: center; gap: 10px; z-index: 20; }
+.navbar button { flex: 1; padding: 12px; border: none; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; }
+.btn-prev { background: #f0f0f0; color: #555; }
+.btn-next { background: #1e88e5; color: #fff; }
+.btn-prev:disabled, .btn-next:disabled { opacity: 0.4; }
+.jump-input { width: 70px; padding: 10px; border: 1px solid #ddd; border-radius: 8px; text-align: center; font-size: 15px; }
+
+/* 索引/书签弹层 */
+.sheet { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 100; display: none; align-items: flex-end; }
+.sheet.open { display: flex; }
+.sheet-body { background: #fff; width: 100%; max-height: 80vh; border-radius: 16px 16px 0 0; padding: 16px; overflow-y: auto; padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+.sheet-body h3 { margin: 0 0 12px; font-size: 17px; }
+.sheet-tabs { display: flex; gap: 8px; margin-bottom: 12px; border-bottom: 1px solid #e0e0e0; }
+.sheet-tab { padding: 8px 12px; cursor: pointer; font-size: 14px; color: #888; border-bottom: 2px solid transparent; }
+.sheet-tab.active { color: #1e88e5; border-bottom-color: #1e88e5; font-weight: 600; }
+.idx-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+.idx-cell { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; background: #f5f5f5; border-radius: 6px; font-size: 13px; cursor: pointer; position: relative; }
+.idx-cell.current { background: #1e88e5; color: #fff; font-weight: 700; }
+.idx-cell.bookmarked::after { content: "★"; position: absolute; top: 1px; right: 3px; font-size: 9px; color: #ffb300; }
+.bm-list { list-style: none; padding: 0; margin: 0; }
+.bm-list li { padding: 12px; border-bottom: 1px solid #f0f0f0; cursor: pointer; display: flex; align-items: flex-start; gap: 10px; }
+.bm-list li .bm-idx { flex-shrink: 0; background: #1e88e5; color: #fff; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: 700; }
+.bm-list li .bm-text { flex: 1; font-size: 14px; line-height: 1.4; color: #555; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.bm-empty { text-align: center; color: #999; padding: 40px 20px; font-size: 14px; }
+
+/* 滑动支持 */
+.swipe-hint { text-align: center; color: #bbb; font-size: 11px; margin: 14px 0; }
+</style>
+</head>
+<body>
+
+<div id="app"></div>
+
+<div class="sheet" id="sheet">
+  <div class="sheet-body">
+    <div class="sheet-tabs">
+      <div class="sheet-tab active" data-tab="all">全部</div>
+      <div class="sheet-tab" data-tab="bookmark">我的书签</div>
+    </div>
+    <div id="sheet-content"></div>
+  </div>
+</div>
+
+<script>
+let DATA = null;
+
+// === 状态管理 ===
+const STORAGE_KEY = 'beititao_state_v1';
+function loadState() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {};
+  } catch { return {}; }
+}
+function saveState(s) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch(e) { console.error(e); }
+}
+let state = loadState();
+function ensureBank(bankId) {
+  if (!state[bankId]) state[bankId] = { lastIndex: 0, bookmarks: [] };
+  if (!Array.isArray(state[bankId].bookmarks)) state[bankId].bookmarks = [];
+  return state[bankId];
+}
+
+// === 渲染 ===
+let currentBank = null;
+let currentIndex = 0;
+
+function escHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function renderHome() {
+  currentBank = null;
+  const app = document.getElementById('app');
+  const banks = [
+    { id: 'public', name: '公共题库', desc: '行政执法公共知识' },
+    { id: 'pro', name: '专业题库', desc: '北京市街道乡镇安全生产执法' }
+  ];
+  let html = `<div class="home">
+    <h1>📚 背题宝</h1>
+    <div class="subtitle">每道题已自动标出答案，专心背就完了</div>
+    <div class="tip">💡 用法：点进题库直接翻题，答案已经标在选项上。进度自动记，下次回来从上次的位置继续。难记的题点右上角 ★ 加书签。</div>`;
+
+  banks.forEach(b => {
+    const bank = DATA[b.id];
+    const total = bank.questions.length;
+    const st = ensureBank(b.id);
+    const progress = total > 0 ? Math.round((st.lastIndex + 1) / total * 100) : 0;
+    const bmCount = st.bookmarks.length;
+    html += `<div class="bank-card">
+      <h2>${escHtml(b.name)}</h2>
+      <div class="stats">${escHtml(b.desc)} · 共 ${total} 题 · ${bmCount} 个书签</div>
+      <div class="progress-bar"><div style="width:${progress}%"></div></div>
+      <div class="progress-text">已看到第 ${st.lastIndex + 1} 题（${progress}%）</div>
+      <div class="actions">
+        <button class="btn-primary" data-action="resume" data-bank="${b.id}">继续</button>
+        <button class="btn-secondary" data-action="start" data-bank="${b.id}">从头开始</button>
+      </div>
+    </div>`;
+  });
+
+  html += `<div class="swipe-hint">数据已离线缓存 · 添加到主屏幕可全屏使用</div></div>`;
+  app.innerHTML = html;
+
+  app.querySelectorAll('button[data-action]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const bid = btn.dataset.bank;
+      const act = btn.dataset.action;
+      const st = ensureBank(bid);
+      const idx = act === 'resume' ? (st.lastIndex || 0) : 0;
+      openQuiz(bid, idx);
+    });
+  });
+}
+
+function openQuiz(bankId, index) {
+  currentBank = bankId;
+  currentIndex = index;
+  const bank = DATA[bankId];
+  if (currentIndex < 0) currentIndex = 0;
+  if (currentIndex >= bank.questions.length) currentIndex = bank.questions.length - 1;
+  const st = ensureBank(bankId);
+  st.lastIndex = currentIndex;
+  saveState(state);
+  renderQuiz();
+}
+
+function getTypeClass(t) {
+  if (t.indexOf('多选') !== -1) return 'multi';
+  if (t.indexOf('判断') !== -1) return 'judge';
+  return '';
+}
+
+function renderQuiz() {
+  const bank = DATA[currentBank];
+  const total = bank.questions.length;
+  const q = bank.questions[currentIndex];
+  const st = ensureBank(currentBank);
+  const isBookmarked = st.bookmarks.includes(currentIndex);
+  const ansSet = new Set(q.answer);
+  const letters = ['A','B','C','D','E','F'];
+
+  let optsHtml = q.options.map((opt, i) => {
+    const isAns = ansSet.has(i);
+    return `<div class="opt${isAns ? ' correct' : ''}">
+      <div class="opt-label">${letters[i] || (i+1)}</div>
+      <div class="opt-text">${escHtml(opt)}</div>
+      ${isAns ? '<div class="opt-check"></div>' : ''}
+    </div>`;
+  }).join('');
+
+  let explainHtml = q.explain ? `<div class="explain"><span class="label">解析：</span>${escHtml(q.explain)}</div>` : '';
+
+  const app = document.getElementById('app');
+  app.innerHTML = `<div class="quiz">
+    <div class="topbar">
+      <button class="back" id="btn-back">‹</button>
+      <div class="title">${escHtml(bank.name)}</div>
+      <button class="star-btn ${isBookmarked ? 'active' : ''}" id="btn-star">★</button>
+      <button class="menu-btn" id="btn-menu">☰</button>
+    </div>
+    <div class="progress-info">
+      <span>第 ${currentIndex + 1} / ${total} 题</span>
+      <span>${q.type}</span>
+    </div>
+    <div class="qcard">
+      <span class="qtype ${getTypeClass(q.type)}">${escHtml(q.type)}</span>
+      <div class="qstem"><span class="qnum">${currentIndex + 1}.</span>${escHtml(q.stem)}</div>
+      ${optsHtml}
+      ${explainHtml}
+    </div>
+    <div class="navbar">
+      <button class="btn-prev" id="btn-prev" ${currentIndex === 0 ? 'disabled' : ''}>← 上一题</button>
+      <input type="number" class="jump-input" id="jump-input" value="${currentIndex + 1}" min="1" max="${total}">
+      <button class="btn-next" id="btn-next" ${currentIndex === total - 1 ? 'disabled' : ''}>下一题 →</button>
+    </div>
+  </div>`;
+
+  document.getElementById('btn-back').addEventListener('click', renderHome);
+  document.getElementById('btn-prev').addEventListener('click', () => goto(currentIndex - 1));
+  document.getElementById('btn-next').addEventListener('click', () => goto(currentIndex + 1));
+  document.getElementById('btn-star').addEventListener('click', toggleBookmark);
+  document.getElementById('btn-menu').addEventListener('click', openSheet);
+  document.getElementById('jump-input').addEventListener('change', e => {
+    const v = parseInt(e.target.value, 10);
+    if (!isNaN(v)) goto(v - 1);
+  });
+  setupSwipe();
+  window.scrollTo(0, 0);
+}
+
+function goto(idx) {
+  const bank = DATA[currentBank];
+  if (idx < 0 || idx >= bank.questions.length) return;
+  currentIndex = idx;
+  const st = ensureBank(currentBank);
+  st.lastIndex = currentIndex;
+  saveState(state);
+  renderQuiz();
+}
+
+function toggleBookmark() {
+  const st = ensureBank(currentBank);
+  const i = st.bookmarks.indexOf(currentIndex);
+  if (i >= 0) st.bookmarks.splice(i, 1);
+  else { st.bookmarks.push(currentIndex); st.bookmarks.sort((a,b)=>a-b); }
+  saveState(state);
+  renderQuiz();
+}
+
+// === 索引/书签弹层 ===
+let sheetTab = 'all';
+function openSheet() {
+  sheetTab = 'all';
+  document.getElementById('sheet').classList.add('open');
+  renderSheet();
+  document.querySelectorAll('.sheet-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.tab === sheetTab);
+  });
+}
+function closeSheet() {
+  document.getElementById('sheet').classList.remove('open');
+}
+document.getElementById('sheet').addEventListener('click', e => {
+  if (e.target.id === 'sheet') closeSheet();
+});
+document.querySelectorAll('.sheet-tab').forEach(t => {
+  t.addEventListener('click', () => {
+    sheetTab = t.dataset.tab;
+    document.querySelectorAll('.sheet-tab').forEach(x => x.classList.toggle('active', x.dataset.tab === sheetTab));
+    renderSheet();
+  });
+});
+
+function renderSheet() {
+  const bank = DATA[currentBank];
+  const st = ensureBank(currentBank);
+  const c = document.getElementById('sheet-content');
+  if (sheetTab === 'all') {
+    let html = `<h3>题目索引（共 ${bank.questions.length} 题）</h3><div class="idx-grid">`;
+    for (let i = 0; i < bank.questions.length; i++) {
+      const cur = i === currentIndex ? ' current' : '';
+      const bm = st.bookmarks.includes(i) ? ' bookmarked' : '';
+      html += `<div class="idx-cell${cur}${bm}" data-idx="${i}">${i+1}</div>`;
+    }
+    html += '</div>';
+    c.innerHTML = html;
+    c.querySelectorAll('.idx-cell').forEach(el => {
+      el.addEventListener('click', () => {
+        const idx = parseInt(el.dataset.idx, 10);
+        closeSheet();
+        goto(idx);
+      });
+    });
+  } else {
+    if (st.bookmarks.length === 0) {
+      c.innerHTML = '<h3>我的书签</h3><div class="bm-empty">还没有书签<br>遇到难题时点右上角的 ★ 标记</div>';
+      return;
+    }
+    let html = `<h3>我的书签（${st.bookmarks.length}）</h3><ul class="bm-list">`;
+    st.bookmarks.forEach(idx => {
+      const q = bank.questions[idx];
+      html += `<li data-idx="${idx}"><span class="bm-idx">${idx+1}</span><div class="bm-text">${escHtml(q.stem.substring(0, 80))}${q.stem.length > 80 ? '...' : ''}</div></li>`;
+    });
+    html += '</ul>';
+    c.innerHTML = html;
+    c.querySelectorAll('.bm-list li').forEach(li => {
+      li.addEventListener('click', () => {
+        const idx = parseInt(li.dataset.idx, 10);
+        closeSheet();
+        goto(idx);
+      });
+    });
+  }
+}
+
+// === 滑动翻页 ===
+let touchStartX = 0, touchStartY = 0;
+function setupSwipe() {
+  const qcard = document.querySelector('.qcard');
+  if (!qcard) return;
+  qcard.addEventListener('touchstart', e => {
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+  }, { passive: true });
+  qcard.addEventListener('touchend', e => {
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    const dy = e.changedTouches[0].clientY - touchStartY;
+    if (Math.abs(dx) > 60 && Math.abs(dy) < 40) {
+      if (dx < 0) goto(currentIndex + 1);
+      else goto(currentIndex - 1);
+    }
+  }, { passive: true });
+}
+
+// === 加载数据 ===
+async function init() {
+  try {
+    const res = await fetch('data.json');
+    DATA = await res.json();
+    renderHome();
+  } catch (e) {
+    document.getElementById('app').innerHTML = '<div style="padding:30px;text-align:center;color:#c00;">题库加载失败：' + e.message + '</div>';
+  }
+}
+init();
+</script>
+</body>
+</html>
