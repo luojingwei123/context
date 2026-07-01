@@ -177,6 +177,11 @@ button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
   margin: 0 var(--space-3); overflow: hidden;
 }
 .progress-info .bar > div { height: 100%; background: var(--primary); transition: width 0.3s; }
+.progress-info .stats-inline { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.progress-info .stat-num { font-weight: 600; }
+.progress-info .stat-done { color: var(--text); }
+.progress-info .stat-correct { color: var(--success); }
+.progress-info .stat-wrong { color: var(--danger); }
 
 .qcard { padding: var(--space-5) var(--space-4) 120px; flex: 1; }
 .qtype-badge {
@@ -458,6 +463,13 @@ function renderHome() {
     const lastType = (state[b.id] && state[b.id].lastType) || 'single';
     const t = ensureType(b.id, lastType);
     const shortName = TYPES.find(x => x.key === lastType).shortName;
+    // 汇总该题库三个题型的总战绩
+    let bankStats = { answered: 0, correct: 0, wrong: 0 };
+    TYPES.forEach(tp => {
+      const ts = ensureType(b.id, tp.key);
+      const s = calcStats(ts);
+      bankStats.answered += s.answered; bankStats.correct += s.correct; bankStats.wrong += s.wrong;
+    });
     html += `<div class="bank-card">
       <h2>${b.icon} ${escHtml(b.name)}</h2>
       <div class="stats">${escHtml(b.desc)} · 共 ${total} 题</div>
@@ -466,8 +478,11 @@ function renderHome() {
         <span class="stat-chip multi">多选 ${c.multi}</span>
         <span class="stat-chip judge">判断 ${c.judge}</span>
       </div>
-      <div class="stats" style="margin-top:-4px;margin-bottom:12px;">
+      <div class="stats" style="margin-top:-4px;margin-bottom:8px;">
         上次：<strong>${shortName}</strong> 第 ${t.lastIndex + 1} 题
+      </div>
+      <div class="stats" style="margin-bottom:12px;">
+        总战绩：已答 <strong>${bankStats.answered}</strong> 题 · <strong style="color:var(--success)">对 ${bankStats.correct}</strong> · <strong style="color:var(--danger)">错 ${bankStats.wrong}</strong>${bankStats.answered > 0 ? ` · 正确率 <strong>${Math.round(bankStats.correct / bankStats.answered * 100)}%</strong>` : ''}
       </div>
       <div class="actions">
         <button class="btn-primary" data-action="resume" data-bank="${b.id}">继续</button>
@@ -634,7 +649,7 @@ function renderQuiz() {
 
   const typeClass = getTypeKey(q.type);
   const progressPct = total > 0 ? ((currentIndex + 1) / total * 100) : 0;
-  const answeredCount = Object.keys(t.answered).length;
+  const stats = calcStats(t);
 
   const app = document.getElementById('app');
   app.innerHTML = `<div class="quiz">
@@ -643,7 +658,11 @@ function renderQuiz() {
     <div class="progress-info">
       <span>第 ${currentIndex + 1} / ${total} 题</span>
       <div class="bar"><div style="width:${progressPct}%"></div></div>
-      <span>已答 ${answeredCount}</span>
+      <span class="stats-inline">
+        <span class="stat-num stat-done">已答 ${stats.answered}</span>
+        · <span class="stat-num stat-correct">对 ${stats.correct}</span>
+        · <span class="stat-num stat-wrong">错 ${stats.wrong}</span>
+      </span>
     </div>
     <div class="qcard">
       <span class="qtype-badge ${typeClass}">${escHtml(q.type)}</span>
@@ -689,6 +708,18 @@ function renderQuiz() {
   }
 
   window.scrollTo(0, 0);
+}
+
+/* ===== 统计 ===== */
+function calcStats(typeState) {
+  let answered = 0, correct = 0, wrong = 0;
+  for (const k in typeState.answered) {
+    const r = typeState.answered[k];
+    if (!r) continue;
+    answered++;
+    if (r.correct) correct++; else wrong++;
+  }
+  return { answered, correct, wrong };
 }
 
 function isPickedCorrect(picked, answer) {
