@@ -825,18 +825,18 @@ function confirmResetProgress() {
   const typeName = TYPES.find(x => x.key === currentType).name;
   const t = ensureType(currentBank, currentType);
   const stats = calcStats(t);
-  const bmCount = t.bookmarks.length;
 
   showConfirm({
     title: '重置进度？',
-    message: `将清除 <strong>${escHtml(bank.name)} · ${typeName}</strong> 的所有答题记录、书签和当前题号。<br><br>
-          已答 <strong>${stats.answered}</strong> 题、书签 <strong>${bmCount}</strong> 个将被清空，且<strong>无法恢复</strong>。<br><br>
-          其他题型不会受影响。`,
+    message: `将清除 <strong>${escHtml(bank.name)} · ${typeName}</strong> 的所有答题记录和当前题号。<br><br>
+          已答 <strong>${stats.answered}</strong> 题（对 ${stats.correct}、错 ${stats.wrong}）将被清空，且<strong>无法恢复</strong>。<br><br>
+          书签保留，其他题型不受影响。`,
     confirmText: '确认重置',
     danger: true,
     onConfirm: () => {
-      // 只重置当前题库 × 当前题型
-      state[currentBank].types[currentType] = { lastIndex: 0, answered: {}, bookmarks: [] };
+      // 只重置当前题库 × 当前题型的答题记录 + 题号，书签保留
+      t.answered = {};
+      t.lastIndex = 0;
       saveState(state);
       currentIndex = 0;
       currentPicked = [];
