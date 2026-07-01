@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0f172a">
+<title>考试宝</title>
+<style>
+/* ==================== Design Tokens ==================== */
+:root {
+  --bg: #f8fafc;
+  --bg-elevated: #ffffff;
+  --bg-subtle: #f1f5f9;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --text: #0f172a;
+  --text-muted: #64748b;
+  --text-subtle: #94a3b8;
+
+  --primary: #6366f1;
+  --primary-hover: #4f46e5;
+  --primary-soft: #eef2ff;
+
+  --success: #10b981;
+  --success-soft: #d1fae5;
+  --success-text: #065f46;
+
+  --danger: #ef4444;
+  --danger-soft: #fee2e2;
+  --danger-text: #991b1b;
+
+  --warning: #f59e0b;
+  --warning-soft: #fef3c7;
+  --warning-text: #92400e;
+
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+
+  --shadow-sm: 0 1px 2px rgba(15,23,42,0.06);
+  --shadow: 0 2px 8px rgba(15,23,42,0.08);
+  --shadow-lg: 0 8px 24px rgba(15,23,42,0.12);
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body {
+  margin: 0; padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", "Segoe UI", Roboto, Arial, sans-serif;
+  background: var(--bg); color: var(--text);
+  -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+  font-size: 15px; line-height: 1.5;
+}
+body { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+button { font-family: inherit; }
+button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* ==================== Home ==================== */
+.home { padding: var(--space-6) var(--space-5) 100px; max-width: 640px; margin: 0 auto; }
+.home-header { text-align: center; margin-bottom: var(--space-6); }
+.home-header h1 { font-size: 28px; font-weight: 700; margin: 0 0 var(--space-2); color: var(--text); letter-spacing: -0.5px; }
+.home-header .subtitle { color: var(--text-muted); font-size: 14px; margin: 0; }
+.home-header .brand-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 56px; height: 56px; border-radius: 16px;
+  background: linear-gradient(135deg, var(--primary), #8b5cf6);
+  color: #fff; font-size: 28px; margin-bottom: var(--space-3);
+  box-shadow: var(--shadow);
+}
+
+.bank-card {
+  background: var(--bg-elevated); border-radius: var(--radius-lg);
+  padding: var(--space-5); margin-bottom: var(--space-3);
+  box-shadow: var(--shadow-sm); border: 1px solid var(--border);
+  transition: transform 0.12s, box-shadow 0.12s;
+}
+.bank-card:active { transform: scale(0.99); }
+.bank-card h2 { margin: 0 0 var(--space-2); font-size: 18px; font-weight: 600; color: var(--text); }
+.bank-card .stats { font-size: 13px; color: var(--text-muted); margin-bottom: var(--space-3); line-height: 1.5; }
+.bank-card .stat-chips { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-4); }
+.stat-chip {
+  font-size: 12px; padding: 4px 10px; border-radius: 999px;
+  background: var(--bg-subtle); color: var(--text-muted); font-weight: 500;
+}
+.stat-chip.single { background: #eef2ff; color: #4338ca; }
+.stat-chip.multi { background: #fff7ed; color: #c2410c; }
+.stat-chip.judge { background: #ecfdf5; color: #047857; }
+
+.bank-card .actions { display: flex; gap: var(--space-2); }
+.bank-card button {
+  flex: 1; padding: 12px 14px; border: none; border-radius: var(--radius);
+  font-size: 14px; font-weight: 600; cursor: pointer;
+  transition: transform 0.1s, background 0.15s;
+}
+.bank-card button:active { transform: scale(0.97); }
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:hover { background: var(--primary-hover); }
+.btn-secondary { background: var(--bg-subtle); color: var(--text); border: 1px solid var(--border) !important; }
+.btn-warning { background: var(--warning); color: #fff; }
+
+.tip {
+  background: var(--warning-soft); border-left: 3px solid var(--warning);
+  padding: var(--space-3) var(--space-4); border-radius: var(--radius-sm);
+  font-size: 13px; color: var(--warning-text); margin-bottom: var(--space-4);
+  line-height: 1.6;
+}
+
+/* ==================== Quiz Page ==================== */
+.quiz { padding: 0; max-width: 760px; margin: 0 auto; min-height: 100vh; display: flex; flex-direction: column; }
+
+.topbar {
+  position: sticky; top: 0; z-index: 30;
+  background: rgba(255,255,255,0.92); backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  padding: var(--space-3) var(--space-4);
+  padding-top: calc(var(--space-3) + env(safe-area-inset-top));
+  display: flex; align-items: center; gap: var(--space-2);
+}
+.topbar .back {
+  background: none; border: none; font-size: 24px;
+  color: var(--primary); padding: 4px 8px; cursor: pointer;
+  line-height: 1; font-weight: 400;
+}
+.topbar .title { flex: 1; font-size: 14px; font-weight: 600; color: var(--text); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.topbar .star-btn, .topbar .menu-btn {
+  background: none; border: none; font-size: 20px; padding: 4px 8px; cursor: pointer;
+  color: var(--text-subtle); line-height: 1;
+}
+.topbar .star-btn.active { color: var(--warning); }
+
+/* Type Tabs - 关键新特性 */
+.type-tabs {
+  position: sticky; top: calc(52px + env(safe-area-inset-top)); z-index: 25;
+  background: rgba(255,255,255,0.92); backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  padding: var(--space-2) var(--space-4);
+  display: flex; gap: var(--space-2); overflow-x: auto;
+  scrollbar-width: none;
+}
+.type-tabs::-webkit-scrollbar { display: none; }
+.type-tab {
+  flex: 1; min-width: fit-content; text-align: center;
+  padding: 10px 14px; border-radius: 999px;
+  background: var(--bg-subtle); color: var(--text-muted);
+  font-size: 13px; font-weight: 600; cursor: pointer;
+  border: 1px solid transparent; white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+.type-tab.active { background: var(--primary); color: #fff; }
+.type-tab .badge {
+  display: inline-block; margin-left: 6px; padding: 1px 6px;
+  border-radius: 999px; background: rgba(255,255,255,0.28);
+  font-size: 11px; font-weight: 500;
+}
+.type-tab:not(.active) .badge { background: var(--bg-elevated); color: var(--text-muted); }
+
+.progress-info {
+  padding: var(--space-2) var(--space-4);
+  background: var(--bg); font-size: 12px; color: var(--text-muted);
+  display: flex; justify-content: space-between; align-items: center;
+  border-bottom: 1px solid var(--border);
+}
+.progress-info .bar {
+  flex: 1; height: 3px; background: var(--border); border-radius: 999px;
+  margin: 0 var(--space-3); overflow: hidden;
+}
+.progress-info .bar > div { height: 100%; background: var(--primary); transition: width 0.3s; }
+
+.qcard { padding: var(--space-5) var(--space-4) 120px; flex: 1; }
+.qtype-badge {
+  display: inline-block; font-size: 11px; padding: 3px 10px; border-radius: 999px;
+  margin-bottom: var(--space-3); font-weight: 600; letter-spacing: 0.3px;
+}
+.qtype-badge.single { background: var(--primary-soft); color: #4338ca; }
+.qtype-badge.multi { background: #fff7ed; color: #c2410c; }
+.qtype-badge.judge { background: #ecfdf5; color: #047857; }
+
+.qstem {
+  font-size: 16px; line-height: 1.7; margin-bottom: var(--space-5);
+  color: var(--text); font-weight: 500;
+}
+.qnum { color: var(--text-subtle); font-weight: 500; font-size: 14px; margin-right: 6px; }
+.qhint { font-size: 12px; color: var(--text-muted); margin-bottom: var(--space-3); }
+
+/* Options */
+.opt {
+  background: var(--bg-elevated); border: 2px solid var(--border);
+  border-radius: var(--radius); padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-2); display: flex; align-items: flex-start;
+  gap: var(--space-3); line-height: 1.6; cursor: pointer;
+  transition: transform 0.1s, border-color 0.15s, background 0.15s;
+  position: relative;
+}
+.opt:active { transform: scale(0.995); }
+.opt.selected { border-color: var(--primary); background: var(--primary-soft); }
+.opt.selected .opt-label { background: var(--primary); color: #fff; }
+.opt.reveal-correct { border-color: var(--success); background: var(--success-soft); color: var(--success-text); }
+.opt.reveal-correct .opt-label { background: var(--success); color: #fff; }
+.opt.reveal-wrong { border-color: var(--danger); background: var(--danger-soft); color: var(--danger-text); }
+.opt.reveal-wrong .opt-label { background: var(--danger); color: #fff; }
+.opt.disabled { cursor: default; }
+.opt-label {
+  flex-shrink: 0; width: 28px; height: 28px; border-radius: 50%;
+  background: var(--bg-subtle); color: var(--text-muted);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 700;
+  transition: background 0.15s, color 0.15s;
+}
+.opt-text { flex: 1; font-size: 15px; color: inherit; }
+.opt-check { font-size: 20px; font-weight: 700; margin-left: 4px; align-self: center; }
+.opt.reveal-correct .opt-check::before { content: "✓"; color: var(--success); }
+.opt.reveal-wrong .opt-check::before { content: "✕"; color: var(--danger); }
+
+/* 提交按钮 + 结果卡 */
+.submit-btn {
+  display: block; width: 100%; padding: 14px;
+  background: var(--primary); color: #fff;
+  border: none; border-radius: var(--radius); font-size: 16px; font-weight: 600;
+  cursor: pointer; margin-top: var(--space-4);
+  transition: background 0.15s, transform 0.1s;
+}
+.submit-btn:hover { background: var(--primary-hover); }
+.submit-btn:active { transform: scale(0.99); }
+.submit-btn:disabled { background: var(--border-strong); color: var(--text-muted); cursor: not-allowed; }
+
+.result-card {
+  margin-top: var(--space-4); border-radius: var(--radius); padding: var(--space-4);
+  border: 1px solid; animation: slideDown 0.25s ease-out;
+}
+.result-card.correct { background: var(--success-soft); border-color: var(--success); color: var(--success-text); }
+.result-card.wrong { background: var(--danger-soft); border-color: var(--danger); color: var(--danger-text); }
+.result-card .result-title { font-size: 16px; font-weight: 700; margin-bottom: var(--space-2); display: flex; align-items: center; gap: 6px; }
+.result-card .result-detail { font-size: 14px; line-height: 1.6; }
+.result-card .result-detail strong { font-weight: 700; }
+
+.explain {
+  background: var(--warning-soft); border-left: 3px solid var(--warning);
+  padding: var(--space-3) var(--space-4); border-radius: var(--radius-sm);
+  margin-top: var(--space-3); font-size: 13px; color: var(--warning-text); line-height: 1.7;
+}
+.explain .label { font-weight: 700; margin-right: 4px; }
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* 底部导航 */
+.navbar {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 20;
+  background: rgba(255,255,255,0.95); backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-top: 1px solid var(--border);
+  padding: var(--space-3) var(--space-4);
+  padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom));
+  display: flex; align-items: center; gap: var(--space-2);
+}
+.navbar button {
+  flex: 1; padding: 12px 14px; border: none; border-radius: var(--radius);
+  font-size: 15px; font-weight: 600; cursor: pointer;
+  transition: transform 0.1s, background 0.15s;
+}
+.navbar button:active { transform: scale(0.98); }
+.btn-prev { background: var(--bg-subtle); color: var(--text); }
+.btn-next { background: var(--primary); color: #fff; }
+.btn-prev:disabled, .btn-next:disabled { opacity: 0.4; cursor: not-allowed; }
+.jump-input {
+  width: 76px; padding: 10px; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); text-align: center; font-size: 15px;
+  background: var(--bg-elevated); color: var(--text); font-family: inherit;
+}
+.jump-input:focus { outline: 2px solid var(--primary); outline-offset: 1px; }
+
+/* Empty state */
+.empty { padding: var(--space-8) var(--space-5); text-align: center; color: var(--text-muted); }
+.empty .empty-icon { font-size: 48px; margin-bottom: var(--space-3); opacity: 0.4; }
+.empty .empty-title { font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: var(--space-2); }
+.empty .empty-desc { font-size: 13px; }
+
+/* 弹层 */
+.sheet {
+  position: fixed; inset: 0; background: rgba(15,23,42,0.5);
+  z-index: 100; display: none; align-items: flex-end;
+  animation: fadeIn 0.15s ease-out;
+}
+.sheet.open { display: flex; }
+.sheet-body {
+  background: var(--bg-elevated); width: 100%; max-height: 82vh;
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  padding: var(--space-4); overflow-y: auto;
+  padding-bottom: calc(var(--space-4) + env(safe-area-inset-bottom));
+  animation: slideUp 0.22s ease-out;
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+.sheet-body h3 { margin: 0 0 var(--space-3); font-size: 17px; font-weight: 600; }
+.sheet-tabs { display: flex; gap: var(--space-2); margin-bottom: var(--space-3); border-bottom: 1px solid var(--border); }
+.sheet-tab {
+  padding: var(--space-2) var(--space-3); cursor: pointer;
+  font-size: 14px; color: var(--text-muted);
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+.sheet-tab.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+
+.idx-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+@media (min-width: 500px) { .idx-grid { grid-template-columns: repeat(8, 1fr); } }
+.idx-cell {
+  aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
+  background: var(--bg-subtle); border-radius: var(--radius-sm);
+  font-size: 13px; cursor: pointer; position: relative;
+  color: var(--text); font-weight: 500; transition: background 0.15s;
+}
+.idx-cell.done { background: var(--success-soft); color: var(--success-text); }
+.idx-cell.wrong { background: var(--danger-soft); color: var(--danger-text); }
+.idx-cell.current { background: var(--primary); color: #fff; font-weight: 700; }
+.idx-cell.bookmarked::after {
+  content: "★"; position: absolute; top: 1px; right: 3px;
+  font-size: 10px; color: var(--warning);
+}
+
+.bm-list { list-style: none; padding: 0; margin: 0; }
+.bm-list li {
+  padding: var(--space-3); border-bottom: 1px solid var(--border);
+  cursor: pointer; display: flex; align-items: flex-start; gap: var(--space-3);
+}
+.bm-list li .bm-idx {
+  flex-shrink: 0; background: var(--primary); color: #fff;
+  padding: 3px 10px; border-radius: 999px;
+  font-size: 12px; font-weight: 700;
+}
+.bm-list li .bm-text {
+  flex: 1; font-size: 14px; line-height: 1.5; color: var(--text-muted);
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+.bm-empty { text-align: center; color: var(--text-muted); padding: var(--space-8) var(--space-5); font-size: 14px; line-height: 1.6; }
+</style>
+</head>
+<body>
+
+<div id="app"></div>
+
+<div class="sheet" id="sheet">
+  <div class="sheet-body">
+    <div class="sheet-tabs">
+      <div class="sheet-tab active" data-tab="all">全部</div>
+      <div class="sheet-tab" data-tab="bookmark">我的书签</div>
+    </div>
+    <div id="sheet-content"></div>
+  </div>
+</div>
+
+<script>
+let DATA = null;
+const TYPES = [
+  { key: 'single', name: '单选题', match: '单选', shortName: '单选' },
+  { key: 'multi',  name: '多选题', match: '多选', shortName: '多选' },
+  { key: 'judge',  name: '判断题', match: '判断', shortName: '判断' }
+];
+
+/* ===== State ===== */
+const STORAGE_KEY = 'kaoshi_state_v1';
+function loadState() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch { return {}; }
+}
+function saveState(s) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch(e) { console.error(e); }
+}
+let state = loadState();
+
+/**
+ * state 结构：
+ * {
+ *   [bankId]: {
+ *     lastType: 'single'|'multi'|'judge',           // 最后浏览的题型
+ *     types: {
+ *       single: { lastIndex: 0, answered: { [idx]: { correct:bool, picked:[i,...] } }, bookmarks: [idx,...] },
+ *       multi:  { ... },
+ *       judge:  { ... }
+ *     }
+ *   }
+ * }
+ */
+function ensureBank(bankId) {
+  if (!state[bankId]) state[bankId] = { lastType: 'single', types: {} };
+  if (!state[bankId].types) state[bankId].types = {};
+  return state[bankId];
+}
+function ensureType(bankId, typeKey) {
+  const b = ensureBank(bankId);
+  if (!b.types[typeKey]) b.types[typeKey] = { lastIndex: 0, answered: {}, bookmarks: [] };
+  if (!b.types[typeKey].answered) b.types[typeKey].answered = {};
+  if (!Array.isArray(b.types[typeKey].bookmarks)) b.types[typeKey].bookmarks = [];
+  return b.types[typeKey];
+}
+
+/* ===== 题库按题型拆分（保留在 bank 中的 originalIdx，便于回溯） ===== */
+function getTypeKey(type) {
+  for (const t of TYPES) if (String(type).indexOf(t.match) !== -1) return t.key;
+  return 'single';
+}
+function getQuestions(bankId, typeKey) {
+  const bank = DATA[bankId];
+  const list = [];
+  bank.questions.forEach((q, i) => {
+    if (getTypeKey(q.type) === typeKey) list.push({ q, originalIdx: i });
+  });
+  return list;
+}
+function countByType(bankId) {
+  const bank = DATA[bankId];
+  const c = { single: 0, multi: 0, judge: 0 };
+  bank.questions.forEach(q => { c[getTypeKey(q.type)]++; });
+  return c;
+}
+
+function escHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* ===== 首页 ===== */
+let currentBank = null;
+let currentType = 'single';
+let currentIndex = 0;
+let currentPicked = [];   // 当前题已选但未提交的选项 index 集合
+let currentSubmitted = false;  // 当前题是否已提交
+
+function renderHome() {
+  currentBank = null;
+  const banks = [
+    { id: 'public', name: '公共题库', desc: '行政执法公共知识', icon: '📚' },
+    { id: 'pro',    name: '专业题库', desc: '北京市街道乡镇安全生产执法', icon: '🏯' }
+  ];
+
+  let html = `<div class="home">
+    <div class="home-header">
+      <div class="brand-icon">📝</div>
+      <h1>考试宝</h1>
+      <div class="subtitle">先选后看答案 · 模拟真实应考</div>
+    </div>
+    <div class="tip">💡 题型自由切换（顶部）· 每种题型独立记录进度· 右上角 ★ 可收藏难题</div>`;
+
+  banks.forEach(b => {
+    const c = countByType(b.id);
+    const total = c.single + c.multi + c.judge;
+    const lastType = (state[b.id] && state[b.id].lastType) || 'single';
+    const t = ensureType(b.id, lastType);
+    const shortName = TYPES.find(x => x.key === lastType).shortName;
+    html += `<div class="bank-card">
+      <h2>${b.icon} ${escHtml(b.name)}</h2>
+      <div class="stats">${escHtml(b.desc)} · 共 ${total} 题</div>
+      <div class="stat-chips">
+        <span class="stat-chip single">单选 ${c.single}</span>
+        <span class="stat-chip multi">多选 ${c.multi}</span>
+        <span class="stat-chip judge">判断 ${c.judge}</span>
+      </div>
+      <div class="stats" style="margin-top:-4px;margin-bottom:12px;">
+        上次：<strong>${shortName}</strong> 第 ${t.lastIndex + 1} 题
+      </div>
+      <div class="actions">
+        <button class="btn-primary" data-action="resume" data-bank="${b.id}">继续</button>
+        <button class="btn-secondary" data-action="start" data-bank="${b.id}">从头开始</button>
+      </div>
+    </div>`;
+  });
+
+  html += '</div>';
+  document.getElementById('app').innerHTML = html;
+
+  document.querySelectorAll('button[data-action]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const bid = btn.dataset.bank;
+      const act = btn.dataset.action;
+      const b = ensureBank(bid);
+      const typeKey = act === 'resume' ? (b.lastType || 'single') : 'single';
+      const t = ensureType(bid, typeKey);
+      const idx = act === 'resume' ? (t.lastIndex || 0) : 0;
+      openQuiz(bid, typeKey, idx);
+    });
+  });
+}
+
+/* ===== 打开答题页 ===== */
+function openQuiz(bankId, typeKey, index) {
+  currentBank = bankId;
+  currentType = typeKey;
+  currentIndex = index;
+
+  const b = ensureBank(bankId);
+  b.lastType = typeKey;
+  const list = getQuestions(bankId, typeKey);
+  if (list.length === 0) { renderEmpty(); return; }
+  if (currentIndex < 0) currentIndex = 0;
+  if (currentIndex >= list.length) currentIndex = list.length - 1;
+
+  const t = ensureType(bankId, typeKey);
+  t.lastIndex = currentIndex;
+  saveState(state);
+
+  // 恢复当前题是否已提交过
+  const rec = t.answered[currentIndex];
+  if (rec) {
+    currentPicked = rec.picked.slice();
+    currentSubmitted = true;
+  } else {
+    currentPicked = [];
+    currentSubmitted = false;
+  }
+  renderQuiz();
+}
+
+function renderEmpty() {
+  const app = document.getElementById('app');
+  const bank = DATA[currentBank];
+  app.innerHTML = `<div class="quiz">
+    ${renderTopbar(bank.name, false)}
+    ${renderTypeTabs()}
+    <div class="empty">
+      <div class="empty-icon">📭</div>
+      <div class="empty-title">此题型暂无题目</div>
+      <div class="empty-desc">切换到其他题型试试</div>
+    </div>
+  </div>`;
+  bindTopbar();
+  bindTypeTabs();
+}
+
+function renderTopbar(title, isBookmarked) {
+  return `<div class="topbar">
+    <button class="back" id="btn-back">‹</button>
+    <div class="title">${escHtml(title)}</div>
+    <button class="star-btn ${isBookmarked ? 'active' : ''}" id="btn-star" title="书签">★</button>
+    <button class="menu-btn" id="btn-menu" title="目录">☰</button>
+  </div>`;
+}
+
+function renderTypeTabs() {
+  const c = countByType(currentBank);
+  return `<div class="type-tabs">${TYPES.map(t => {
+    const active = t.key === currentType ? ' active' : '';
+    return `<div class="type-tab${active}" data-type="${t.key}">${t.name}<span class="badge">${c[t.key]}</span></div>`;
+  }).join('')}</div>`;
+}
+
+function bindTopbar() {
+  const back = document.getElementById('btn-back');
+  if (back) back.addEventListener('click', renderHome);
+  const star = document.getElementById('btn-star');
+  if (star) star.addEventListener('click', toggleBookmark);
+  const menu = document.getElementById('btn-menu');
+  if (menu) menu.addEventListener('click', openSheet);
+}
+
+function bindTypeTabs() {
+  document.querySelectorAll('.type-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      const typeKey = tab.dataset.type;
+      if (typeKey === currentType) return;
+      // 切题型，自动定位到该题型上次的 lastIndex
+      const t = ensureType(currentBank, typeKey);
+      openQuiz(currentBank, typeKey, t.lastIndex || 0);
+    });
+  });
+}
+
+/* ===== 渲染答题页 ===== */
+function renderQuiz() {
+  const bank = DATA[currentBank];
+  const list = getQuestions(currentBank, currentType);
+  const total = list.length;
+  const item = list[currentIndex];
+  const q = item.q;
+  const t = ensureType(currentBank, currentType);
+  const isBookmarked = t.bookmarks.indexOf(currentIndex) !== -1;
+  const ansSet = new Set(q.answer);
+  const isMulti = getTypeKey(q.type) === 'multi';
+  const letters = ['A','B','C','D','E','F'];
+  const pickedSet = new Set(currentPicked);
+
+  // 选项 HTML
+  const optsHtml = q.options.map((opt, i) => {
+    let cls = 'opt';
+    if (currentSubmitted) {
+      cls += ' disabled';
+      if (ansSet.has(i)) cls += ' reveal-correct';
+      else if (pickedSet.has(i)) cls += ' reveal-wrong';
+    } else if (pickedSet.has(i)) {
+      cls += ' selected';
+    }
+    const check = currentSubmitted && (ansSet.has(i) || pickedSet.has(i))
+      ? '<div class="opt-check"></div>' : '';
+    return `<div class="${cls}" data-opt="${i}">
+      <div class="opt-label">${letters[i] || (i+1)}</div>
+      <div class="opt-text">${escHtml(opt)}</div>
+      ${check}
+    </div>`;
+  }).join('');
+
+  // 结果卡
+  let resultHtml = '';
+  if (currentSubmitted) {
+    const correctLetters = Array.from(ansSet).sort((a,b)=>a-b).map(i => letters[i]).join('、');
+    const pickedLetters = currentPicked.slice().sort((a,b)=>a-b).map(i => letters[i]).join('、') || '(未选)';
+    const isCorrect = isPickedCorrect(currentPicked, q.answer);
+    resultHtml = `<div class="result-card ${isCorrect ? 'correct' : 'wrong'}">
+      <div class="result-title">${isCorrect ? '✓ 回答正确' : '✕ 回答错误'}</div>
+      <div class="result-detail">
+        你的选择：<strong>${pickedLetters}</strong><br>
+        正确答案：<strong>${correctLetters}</strong>
+      </div>
+    </div>`;
+    if (q.explain) {
+      resultHtml += `<div class="explain"><span class="label">解析：</span>${escHtml(q.explain)}</div>`;
+    }
+  }
+
+  // 提交按钮
+  const submitHtml = currentSubmitted ? '' :
+    `<button class="submit-btn" id="btn-submit" ${currentPicked.length === 0 ? 'disabled' : ''}>
+       ${isMulti ? '提交答案（多选）' : '提交答案'}
+     </button>`;
+
+  const typeClass = getTypeKey(q.type);
+  const progressPct = total > 0 ? ((currentIndex + 1) / total * 100) : 0;
+  const answeredCount = Object.keys(t.answered).length;
+
+  const app = document.getElementById('app');
+  app.innerHTML = `<div class="quiz">
+    ${renderTopbar(bank.name, isBookmarked)}
+    ${renderTypeTabs()}
+    <div class="progress-info">
+      <span>第 ${currentIndex + 1} / ${total} 题</span>
+      <div class="bar"><div style="width:${progressPct}%"></div></div>
+      <span>已答 ${answeredCount}</span>
+    </div>
+    <div class="qcard">
+      <span class="qtype-badge ${typeClass}">${escHtml(q.type)}</span>
+      <div class="qstem"><span class="qnum">${currentIndex + 1}.</span>${escHtml(q.stem)}</div>
+      ${isMulti && !currentSubmitted ? '<div class="qhint">提示：多选题，可选择多项</div>' : ''}
+      ${optsHtml}
+      ${submitHtml}
+      ${resultHtml}
+    </div>
+    <div class="navbar">
+      <button class="btn-prev" id="btn-prev" ${currentIndex === 0 ? 'disabled' : ''}>← 上一题</button>
+      <input type="number" class="jump-input" id="jump-input" value="${currentIndex + 1}" min="1" max="${total}">
+      <button class="btn-next" id="btn-next" ${currentIndex === total - 1 ? 'disabled' : ''}>${currentSubmitted ? '下一题 →' : '跳过 →'}</button>
+    </div>
+  </div>`;
+
+  bindTopbar();
+  bindTypeTabs();
+  document.getElementById('btn-prev').addEventListener('click', () => goto(currentIndex - 1));
+  document.getElementById('btn-next').addEventListener('click', () => goto(currentIndex + 1));
+  document.getElementById('jump-input').addEventListener('change', e => {
+    const v = parseInt(e.target.value, 10);
+    if (!isNaN(v)) goto(v - 1);
+  });
+
+  // 选项点击
+  if (!currentSubmitted) {
+    document.querySelectorAll('.opt').forEach(el => {
+      el.addEventListener('click', () => {
+        const i = parseInt(el.dataset.opt, 10);
+        if (isMulti) {
+          const idx = currentPicked.indexOf(i);
+          if (idx >= 0) currentPicked.splice(idx, 1);
+          else currentPicked.push(i);
+        } else {
+          currentPicked = [i];
+        }
+        renderQuiz();
+      });
+    });
+    const btnSubmit = document.getElementById('btn-submit');
+    if (btnSubmit) btnSubmit.addEventListener('click', submitAnswer);
+  }
+
+  window.scrollTo(0, 0);
+}
+
+function isPickedCorrect(picked, answer) {
+  const ps = picked.slice().sort((a,b)=>a-b);
+  const as = answer.slice().sort((a,b)=>a-b);
+  if (ps.length !== as.length) return false;
+  for (let i = 0; i < ps.length; i++) if (ps[i] !== as[i]) return false;
+  return true;
+}
+
+function submitAnswer() {
+  if (currentPicked.length === 0) return;
+  const list = getQuestions(currentBank, currentType);
+  const q = list[currentIndex].q;
+  const t = ensureType(currentBank, currentType);
+  const correct = isPickedCorrect(currentPicked, q.answer);
+  t.answered[currentIndex] = { correct, picked: currentPicked.slice() };
+  saveState(state);
+  currentSubmitted = true;
+  renderQuiz();
+}
+
+function goto(idx) {
+  const list = getQuestions(currentBank, currentType);
+  if (idx < 0 || idx >= list.length) return;
+  openQuiz(currentBank, currentType, idx);
+}
+
+function toggleBookmark() {
+  const t = ensureType(currentBank, currentType);
+  const i = t.bookmarks.indexOf(currentIndex);
+  if (i >= 0) t.bookmarks.splice(i, 1);
+  else { t.bookmarks.push(currentIndex); t.bookmarks.sort((a,b)=>a-b); }
+  saveState(state);
+  renderQuiz();
+}
+
+/* ===== 索引/书签弹层 ===== */
+let sheetTab = 'all';
+function openSheet() {
+  sheetTab = 'all';
+  document.getElementById('sheet').classList.add('open');
+  document.querySelectorAll('.sheet-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === sheetTab));
+  renderSheet();
+}
+function closeSheet() { document.getElementById('sheet').classList.remove('open'); }
+document.getElementById('sheet').addEventListener('click', e => { if (e.target.id === 'sheet') closeSheet(); });
+document.querySelectorAll('.sheet-tab').forEach(t => {
+  t.addEventListener('click', () => {
+    sheetTab = t.dataset.tab;
+    document.querySelectorAll('.sheet-tab').forEach(x => x.classList.toggle('active', x.dataset.tab === sheetTab));
+    renderSheet();
+  });
+});
+
+function renderSheet() {
+  const list = getQuestions(currentBank, currentType);
+  const t = ensureType(currentBank, currentType);
+  const c = document.getElementById('sheet-content');
+  const typeName = TYPES.find(x => x.key === currentType).name;
+  if (sheetTab === 'all') {
+    let html = `<h3>${typeName}索引（共 ${list.length} 题）</h3><div class="idx-grid">`;
+    for (let i = 0; i < list.length; i++) {
+      const cur = i === currentIndex ? ' current' : '';
+      const bm = t.bookmarks.indexOf(i) !== -1 ? ' bookmarked' : '';
+      const rec = t.answered[i];
+      let done = '';
+      if (rec) done = rec.correct ? ' done' : ' wrong';
+      html += `<div class="idx-cell${cur}${bm}${done}" data-idx="${i}">${i+1}</div>`;
+    }
+    html += '</div>';
+    c.innerHTML = html;
+    c.querySelectorAll('.idx-cell').forEach(el => {
+      el.addEventListener('click', () => {
+        const idx = parseInt(el.dataset.idx, 10);
+        closeSheet();
+        goto(idx);
+      });
+    });
+  } else {
+    if (t.bookmarks.length === 0) {
+      c.innerHTML = `<h3>我的书签（${typeName}）</h3><div class="bm-empty">还没有书签<br>遇到难题时点右上角 ★ 标记</div>`;
+      return;
+    }
+    let html = `<h3>我的书签（${typeName} · ${t.bookmarks.length}）</h3><ul class="bm-list">`;
+    t.bookmarks.forEach(idx => {
+      const q = list[idx].q;
+      const preview = q.stem.substring(0, 80);
+      html += `<li data-idx="${idx}"><span class="bm-idx">${idx+1}</span><div class="bm-text">${escHtml(preview)}${q.stem.length > 80 ? '...' : ''}</div></li>`;
+    });
+    html += '</ul>';
+    c.innerHTML = html;
+    c.querySelectorAll('.bm-list li').forEach(li => {
+      li.addEventListener('click', () => {
+        const idx = parseInt(li.dataset.idx, 10);
+        closeSheet();
+        goto(idx);
+      });
+    });
+  }
+}
+
+/* ===== 启动 ===== */
+fetch('./data.json')
+  .then(r => r.json())
+  .then(d => { DATA = d; renderHome(); })
+  .catch(err => {
+    document.getElementById('app').innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">题库加载失败</div><div class="empty-desc">${escHtml(String(err))}</div></div>`;
+  });
+</script>
+</body>
+</html>
