@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#7e57c2">
+<title>搜题宝</title>
+<style>
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", Arial, sans-serif; background: #f5f7fa; color: #222; -webkit-font-smoothing: antialiased; }
+body { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+
+.wrap { max-width: 700px; margin: 0 auto; padding: 16px 16px 40px; }
+.header { text-align: center; margin: 8px 0 18px; }
+.header h1 { font-size: 24px; margin: 0 0 4px; color: #7e57c2; }
+.header .subtitle { color: #888; font-size: 13px; }
+
+/* 搜索框 */
+.search-box { position: sticky; top: 0; background: #f5f7fa; padding: 8px 0 10px; z-index: 30; margin-bottom: 8px; padding-top: calc(8px + env(safe-area-inset-top)); }
+.search-input-wrap { position: relative; }
+.search-input { width: 100%; padding: 14px 44px 14px 44px; border: 2px solid #e0e0e0; border-radius: 12px; font-size: 15px; background: #fff; outline: none; transition: border 0.15s; }
+.search-input:focus { border-color: #7e57c2; }
+.search-icon { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: #999; font-size: 18px; pointer-events: none; }
+.clear-btn { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: #ccc; color: #fff; border: none; width: 24px; height: 24px; border-radius: 50%; font-size: 14px; cursor: pointer; display: none; }
+.clear-btn.show { display: block; }
+
+/* 筛选切换 */
+.mode-tabs { display: flex; gap: 8px; margin: 10px 0; }
+.mode-tab { flex: 1; padding: 8px; text-align: center; background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; font-size: 13px; color: #555; cursor: pointer; transition: all 0.15s; }
+.mode-tab.active { background: #7e57c2; color: #fff; border-color: #7e57c2; font-weight: 600; }
+
+.filter-panel { background: #fff; border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; border: 1px solid #ede7f6; display: none; }
+.filter-panel.show { display: block; }
+.filter-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 13px; }
+.filter-row:last-child { margin-bottom: 0; }
+.filter-label { color: #666; flex-shrink: 0; width: 52px; }
+.chip-group { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; }
+.chip { padding: 5px 12px; background: #f5f5f5; color: #666; border-radius: 14px; font-size: 12px; cursor: pointer; border: 1px solid transparent; }
+.chip.active { background: #ede7f6; color: #7e57c2; border-color: #7e57c2; font-weight: 600; }
+
+/* 结果统计 */
+.stat-bar { font-size: 12px; color: #888; margin: 8px 4px 12px; display: flex; justify-content: space-between; align-items: center; }
+.stat-bar .cnt { color: #7e57c2; font-weight: 600; }
+
+/* 空态/引导 */
+.empty { text-align: center; padding: 40px 20px; color: #999; }
+.empty .icon { font-size: 48px; margin-bottom: 10px; }
+.empty .msg { font-size: 14px; line-height: 1.6; }
+.empty .msg strong { color: #7e57c2; }
+
+.tip-card { background: #fff8e1; border-left: 3px solid #ffb300; padding: 12px 14px; border-radius: 6px; font-size: 13px; color: #6d4c00; line-height: 1.55; margin-bottom: 12px; }
+
+/* 题目卡片 */
+.qcard { background: #fff; border-radius: 12px; padding: 14px 16px 12px; margin-bottom: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.04); }
+.qmeta { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; align-items: center; }
+.qtype { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
+.qtype.single { background: #e3f2fd; color: #1565c0; }
+.qtype.multi { background: #fff3e0; color: #e65100; }
+.qtype.judge { background: #e8f5e9; color: #2e7d32; }
+.qbank { font-size: 11px; color: #888; }
+.qidx { font-size: 11px; color: #bbb; margin-left: auto; }
+
+.qstem { font-size: 15px; line-height: 1.55; margin-bottom: 10px; color: #222; }
+
+.opt { padding: 8px 12px; margin-bottom: 5px; border-radius: 6px; display: flex; align-items: flex-start; gap: 8px; font-size: 14px; line-height: 1.5; background: #fafafa; }
+.opt.correct { background: #e8f5e9; color: #1b5e20; font-weight: 600; }
+.opt-label { flex-shrink: 0; width: 20px; height: 20px; border-radius: 50%; background: #eee; color: #888; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; }
+.opt.correct .opt-label { background: #4caf50; color: #fff; }
+.opt-text { flex: 1; }
+.opt.correct .opt-text::after { content: " ✓"; color: #4caf50; }
+
+.answer-line { font-size: 13px; color: #4caf50; font-weight: 600; margin: 8px 0 4px; }
+.explain { background: #fff8e1; padding: 8px 12px; border-radius: 6px; font-size: 12px; color: #6d4c00; margin-top: 8px; line-height: 1.55; }
+.explain .label { font-weight: 700; }
+
+/* 高亮 */
+.hl { background: #fff59d; color: #d84315; font-weight: 600; padding: 0 2px; border-radius: 2px; }
+
+/* 加载更多 */
+.load-more { text-align: center; padding: 14px; color: #7e57c2; font-size: 14px; cursor: pointer; }
+.load-more:hover { text-decoration: underline; }
+
+.foot { text-align: center; color: #bbb; font-size: 11px; margin: 20px 0 0; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="header">
+    <h1>🔍 搜题宝</h1>
+    <div class="subtitle">输入关键词，1120 题里找答案</div>
+  </div>
+
+  <div class="search-box">
+    <div class="search-input-wrap">
+      <span class="search-icon">🔍</span>
+      <input type="text" class="search-input" id="q" placeholder="输入题干、选项或关键词..." autocomplete="off">
+      <button class="clear-btn" id="clear-btn">✕</button>
+    </div>
+
+    <div class="mode-tabs">
+      <div class="mode-tab active" data-mode="all">🌐 全局搜索</div>
+      <div class="mode-tab" data-mode="scope">🎯 指定搜索</div>
+    </div>
+
+    <div class="filter-panel" id="filter">
+      <div class="filter-row">
+        <div class="filter-label">题库</div>
+        <div class="chip-group" id="bank-chips">
+          <div class="chip active" data-bank="public">公共题库</div>
+          <div class="chip active" data-bank="pro">专业题库</div>
+        </div>
+      </div>
+      <div class="filter-row">
+        <div class="filter-label">题型</div>
+        <div class="chip-group" id="type-chips">
+          <div class="chip active" data-type="单选题">单选题</div>
+          <div class="chip active" data-type="多选题">多选题</div>
+          <div class="chip active" data-type="判断题">判断题</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="stat-bar" id="stat-bar" style="display:none;"></div>
+  <div id="results"></div>
+  <div class="foot" id="foot"></div>
+</div>
+
+<script>
+let DATA = null;
+let ALL = []; // 扁平化的所有题目
+let mode = 'all'; // all | scope
+let filters = {
+  banks: new Set(['public', 'pro']),
+  types: new Set(['单选题', '多选题', '判断题'])
+};
+let PAGE_SIZE = 30;
+let currentShown = 0;
+let currentResults = [];
+
+function escHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function highlight(text, keywords) {
+  const safe = escHtml(text);
+  if (!keywords.length) return safe;
+  // 关键词按长度倒序，避免短词覆盖长词
+  const sorted = [...new Set(keywords)].filter(k => k).sort((a, b) => b.length - a.length);
+  if (!sorted.length) return safe;
+  const pattern = sorted.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  const re = new RegExp('(' + pattern + ')', 'gi');
+  return safe.replace(re, '<span class="hl">$1</span>');
+}
+
+// 分词：把输入按空格分成多个关键词，全部命中才算匹配（AND）
+function tokenize(q) {
+  return q.trim().split(/\s+/).filter(Boolean);
+}
+
+function matchQuestion(q, tokens) {
+  if (!tokens.length) return false;
+  const haystack = (q.stem + ' ' + q.options.join(' ') + ' ' + (q.explain || '')).toLowerCase();
+  return tokens.every(t => haystack.includes(t.toLowerCase()));
+}
+
+function flattenData() {
+  ALL = [];
+  ['public', 'pro'].forEach(bankId => {
+    const bank = DATA[bankId];
+    bank.questions.forEach((q, i) => {
+      ALL.push({
+        bankId,
+        bankName: bank.name,
+        idx: i + 1,
+        type: q.type,
+        stem: q.stem,
+        options: q.options,
+        answer: q.answer,
+        explain: q.explain || ''
+      });
+    });
+  });
+}
+
+function search() {
+  const raw = document.getElementById('q').value.trim();
+  const clearBtn = document.getElementById('clear-btn');
+  clearBtn.classList.toggle('show', raw.length > 0);
+
+  const results = document.getElementById('results');
+  const statBar = document.getElementById('stat-bar');
+  const foot = document.getElementById('foot');
+
+  if (!raw) {
+    statBar.style.display = 'none';
+    foot.textContent = '';
+    results.innerHTML = `
+      <div class="tip-card">💡 输入关键词就能搜。支持题干、选项、解析全文搜索。多个词用空格分开（如"罚款 期限"），要全部命中才算匹配。</div>
+      <div class="empty">
+        <div class="icon">🔍</div>
+        <div class="msg">输入关键词开始搜题<br><br>公共题库 <strong>969</strong> 题 + 专业题库 <strong>151</strong> 题<br>合计 <strong>1120</strong> 题</div>
+      </div>`;
+    return;
+  }
+
+  const tokens = tokenize(raw);
+  const scope = mode === 'all' ? ALL : ALL.filter(q => filters.banks.has(q.bankId) && filters.types.has(q.type));
+
+  currentResults = scope.filter(q => matchQuestion(q, tokens));
+
+  // 按题型（单选→多选→判断）+ 题库（公共→专业）排序，命中最多的选项/题干靠前简化处理
+  currentResults.sort((a, b) => {
+    const ta = a.stem.toLowerCase().indexOf(tokens[0].toLowerCase());
+    const tb = b.stem.toLowerCase().indexOf(tokens[0].toLowerCase());
+    // 题干命中在前
+    const aInStem = ta >= 0 ? 0 : 1;
+    const bInStem = tb >= 0 ? 0 : 1;
+    if (aInStem !== bInStem) return aInStem - bInStem;
+    return 0;
+  });
+
+  currentShown = 0;
+  renderResults(tokens);
+
+  statBar.style.display = 'flex';
+  const scopeDesc = mode === 'all'
+    ? '全局'
+    : `${[...filters.banks].map(b => b === 'public' ? '公共' : '专业').join('/')} · ${[...filters.types].map(t => t.replace('题','')).join('/')}`;
+  statBar.innerHTML = `<span>找到 <span class="cnt">${currentResults.length}</span> 条结果</span><span style="color:#aaa;">范围：${escHtml(scopeDesc)}</span>`;
+}
+
+function renderResults(tokens) {
+  const results = document.getElementById('results');
+  const foot = document.getElementById('foot');
+
+  if (currentResults.length === 0) {
+    results.innerHTML = `<div class="empty"><div class="icon">😶</div><div class="msg">没搜到匹配的题<br><br>试试换个关键词，或切到<strong>全局搜索</strong>再试</div></div>`;
+    foot.textContent = '';
+    return;
+  }
+
+  const letters = ['A','B','C','D','E','F','G'];
+  const toShow = currentResults.slice(0, currentShown + PAGE_SIZE);
+  currentShown = toShow.length;
+
+  let html = toShow.map(q => {
+    const typeCls = q.type.indexOf('多选') !== -1 ? 'multi' : (q.type.indexOf('判断') !== -1 ? 'judge' : 'single');
+    const ansSet = new Set(q.answer);
+    const optsHtml = q.options.map((opt, i) => {
+      const isAns = ansSet.has(i);
+      return `<div class="opt${isAns ? ' correct' : ''}">
+        <div class="opt-label">${letters[i] || (i+1)}</div>
+        <div class="opt-text">${highlight(opt, tokens)}</div>
+      </div>`;
+    }).join('');
+    const ansLetters = q.answer.map(i => letters[i] || (i+1)).join(' ');
+    const explainHtml = q.explain ? `<div class="explain"><span class="label">解析：</span>${highlight(q.explain, tokens)}</div>` : '';
+
+    return `<div class="qcard">
+      <div class="qmeta">
+        <span class="qtype ${typeCls}">${escHtml(q.type)}</span>
+        <span class="qbank">${escHtml(q.bankName)}</span>
+        <span class="qidx">#${q.idx}</span>
+      </div>
+      <div class="qstem">${highlight(q.stem, tokens)}</div>
+      ${optsHtml}
+      <div class="answer-line">✅ 答案：${ansLetters}</div>
+      ${explainHtml}
+    </div>`;
+  }).join('');
+
+  if (currentResults.length > currentShown) {
+    html += `<div class="load-more" id="load-more">加载更多（还剩 ${currentResults.length - currentShown} 条）</div>`;
+  }
+
+  results.innerHTML = html;
+
+  const loadMore = document.getElementById('load-more');
+  if (loadMore) {
+    loadMore.addEventListener('click', () => renderResults(tokens));
+  }
+
+  foot.textContent = currentResults.length > currentShown
+    ? ''
+    : `— 已展示全部 ${currentResults.length} 条结果 —`;
+}
+
+// 绑定事件
+document.getElementById('q').addEventListener('input', debounce(search, 200));
+document.getElementById('clear-btn').addEventListener('click', () => {
+  document.getElementById('q').value = '';
+  document.getElementById('q').focus();
+  search();
+});
+document.querySelectorAll('.mode-tab').forEach(t => {
+  t.addEventListener('click', () => {
+    mode = t.dataset.mode;
+    document.querySelectorAll('.mode-tab').forEach(x => x.classList.toggle('active', x.dataset.mode === mode));
+    document.getElementById('filter').classList.toggle('show', mode === 'scope');
+    search();
+  });
+});
+document.querySelectorAll('#bank-chips .chip').forEach(c => {
+  c.addEventListener('click', () => {
+    const b = c.dataset.bank;
+    if (filters.banks.has(b)) {
+      if (filters.banks.size > 1) filters.banks.delete(b);
+    } else {
+      filters.banks.add(b);
+    }
+    c.classList.toggle('active', filters.banks.has(b));
+    search();
+  });
+});
+document.querySelectorAll('#type-chips .chip').forEach(c => {
+  c.addEventListener('click', () => {
+    const t = c.dataset.type;
+    if (filters.types.has(t)) {
+      if (filters.types.size > 1) filters.types.delete(t);
+    } else {
+      filters.types.add(t);
+    }
+    c.classList.toggle('active', filters.types.has(t));
+    search();
+  });
+});
+
+function debounce(fn, ms) {
+  let t;
+  return function(...args) {
+    clearTimeout(t);
+    t = setTimeout(() => fn.apply(this, args), ms);
+  };
+}
+
+// 加载数据
+fetch('./data.json?v=' + Date.now())
+  .then(r => r.json())
+  .then(d => {
+    DATA = d;
+    flattenData();
+    search();
+    document.getElementById('q').focus();
+  })
+  .catch(err => {
+    document.getElementById('results').innerHTML = '<div class="empty"><div class="icon">⚠️</div><div class="msg">题库加载失败<br>' + escHtml(err.message) + '</div></div>';
+  });
+</script>
+</body>
+</html>

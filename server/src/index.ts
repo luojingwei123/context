@@ -84,6 +84,14 @@ app.use("/kaoshi", express.static(path.join(process.cwd(), "public/kaoshi"), {
   }
 }));
 
+// 搜题宝 — 模糊搜索题库（无需鉴权）
+app.use("/soutibao", express.static(path.join(process.cwd(), "public/soutibao"), {
+  maxAge: 0,
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.json')) res.setHeader('Cache-Control', 'public, max-age=3600');
+  }
+}));
+
 // Everything else (/, /s/*, /auth/*, /ctx/*) — router handles internally
 app.use("/", routes);
 
